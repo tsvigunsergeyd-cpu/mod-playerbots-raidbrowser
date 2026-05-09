@@ -15,6 +15,7 @@
 #include "ChannelMgr.h"
 #include "CharacterPackets.h"
 #include "ChatHelper.h"
+#include "CheckMountStateAction.h"
 #include "Common.h"
 #include "CreatureData.h"
 #include "EmoteAction.h"
@@ -1363,6 +1364,17 @@ void PlayerbotAI::HandleBotOutgoingPacket(WorldPacket const& packet)
             // bot->Heart();
 
             // */
+            return;
+        }
+        case SMSG_DISMOUNT:
+        {
+            WorldPacket p(packet);
+            p.rpos(0);
+            ObjectGuid guid;
+            p >> guid.ReadAsPacked();
+            if (guid != bot->GetGUID())
+                return;
+            CheckMountStateAction::CompleteDismount(bot);
             return;
         }
         default:
