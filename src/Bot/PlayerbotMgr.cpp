@@ -729,7 +729,7 @@ std::string const PlayerbotHolder::ProcessBotCommand(std::string const cmd, Obje
     if (!bot)
         return "bot not found";
 
-    bool addClassBot = sRandomPlayerbotMgr.IsAddclassBot(guid.GetCounter());
+    bool addClassBot = sRandomPlayerbotMgr.IsAddclassBot(bot);
 
     if (!addClassBot)
     {
@@ -1068,6 +1068,7 @@ std::vector<std::string> PlayerbotHolder::HandlePlayerbotCommand(char const* arg
             messages.push_back("Enable player botAI");
             PlayerbotsMgr::instance().AddPlayerbotData(master, true);
             GET_PLAYERBOT_AI(master)->SetMaster(master);
+            GET_PLAYERBOT_AI(master)->SetBotType(BotType::REALPLAYER);
             PlayerbotRepository::instance().Load(GET_PLAYERBOT_AI(master));
         }
 
@@ -1632,6 +1633,13 @@ void PlayerbotMgr::OnBotLoginInternal(Player* const bot)
     }
     botAI->SetMaster(master);
     botAI->ResetStrategies();
+
+    // Any bot summoned off a randombot account (random pool or addclass) is
+    // treated as an addclass bot; only a player's own characters are alts.
+    uint32 botAccountId = bot->GetSession()->GetAccountId();
+    botAI->SetBotType(sPlayerbotAIConfig.IsInRandomAccountList(botAccountId)
+                              ? BotType::ADDCLASSBOT
+                              : BotType::ALTBOT);
 
     LOG_INFO("playerbots", "Bot {} logged in", bot->GetName().c_str());
 }
