@@ -50,7 +50,7 @@ bool LootAction::Execute(Event /*event*/)
 bool LootAction::isUseful()
 {
     return sPlayerbotAIConfig.freeMethodLoot || !bot->GetGroup() ||
-    bot->GetGroup()->GetLootMethod() != FREE_FOR_ALL || botAI->IsRealPlayer();
+    bot->GetGroup()->GetLootMethod() != FREE_FOR_ALL || IsSelfBot(bot);
 }
 
 enum ProfessionSpells
@@ -403,7 +403,7 @@ bool StoreLootAction::Execute(Event event)
         if (!proto)
             continue;
 
-        if (!botAI->HasActivePlayerMaster() && AI_VALUE(uint8, "bag space") > 80)
+        if (!IsRealPlayer(botAI->GetMaster()) && AI_VALUE(uint8, "bag space") > 80)
         {
             uint32 maxStack = proto->GetMaxStackSize();
             if (maxStack == 1)
@@ -514,7 +514,7 @@ bool StoreLootAction::IsLootAllowed(uint32 itemid, PlayerbotAI* botAI)
     //{
 
     bool canLoot = lootStrategy->CanLoot(proto, context);
-    // if (canLoot && proto->Bonding == BIND_WHEN_PICKED_UP && botAI->HasActivePlayerMaster())
+    // if (canLoot && proto->Bonding == BIND_WHEN_PICKED_UP && IsRealPlayer(botAI->GetMaster()))
     // canLoot = sPlayerbotAIConfig.IsInRandomAccountList(botAI->GetBot()->GetSession()->GetAccountId());
 
     return canLoot;

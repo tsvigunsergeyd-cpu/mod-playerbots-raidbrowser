@@ -4788,14 +4788,10 @@ void PlayerbotFactory::InitArenaTeam()
                 {
                     Player* bot = ObjectAccessor::FindPlayer(arenateam->GetCaptain());
                     PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
-                    if (!botAI || botAI->IsRealPlayer())
-                    {
+                    if (!botAI || IsSelfBot(bot))
                         continue;
-                    }
                     else
-                    {
                         arenateam->Disband(nullptr);
-                    }
                 }
             }
 
