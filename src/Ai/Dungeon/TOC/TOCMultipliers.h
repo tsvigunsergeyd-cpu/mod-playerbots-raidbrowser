@@ -7,8 +7,6 @@
 #ifndef PLAYERBOTS_TOCMULTIPLIERS_H
 #define PLAYERBOTS_TOCMULTIPLIERS_H
 
-#include "Multiplier.h"
-
 /* class tocMultiplier : public Multiplier
 {
     public:

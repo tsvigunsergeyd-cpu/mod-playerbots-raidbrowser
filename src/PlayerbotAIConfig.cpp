@@ -5,7 +5,6 @@
  */
 
 #include "PlayerbotAIConfig.h"
-#include <iostream>
 #include "BisListMgr.h"
 #include "Config.h"
 #include "NewRpgInfo.h"

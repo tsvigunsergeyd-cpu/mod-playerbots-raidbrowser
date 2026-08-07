@@ -7,8 +7,6 @@
 #ifndef PLAYERBOTS_NEWRPGACTION_H
 #define PLAYERBOTS_NEWRPGACTION_H
 
-#include <string>
-
 #include "Duration.h"
 #include "MovementActions.h"
 #include "NewRpgBaseAction.h"
@@ -20,6 +18,7 @@
 #include "PlayerbotAI.h"
 #include "QuestDef.h"
 #include "TravelMgr.h"
+#include <string>
 
 class Player;
 
