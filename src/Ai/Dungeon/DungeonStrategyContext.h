@@ -7,25 +7,25 @@
 #ifndef PLAYERBOTS_DUNGEONSTRATEGYCONTEXT_H
 #define PLAYERBOTS_DUNGEONSTRATEGYCONTEXT_H
 
-#include "Strategy.h"
 #include "ACStrategy.h"
-#include "SethStrategy.h"
-#include "MechStrategy.h"
-#include "UKStrategy.h"
-#include "NexStrategy.h"
-#include "ANStrategy.h"
 #include "AKStrategy.h"
-#include "DTKStrategy.h"
-#include "VHStrategy.h"
-#include "GDStrategy.h"
-#include "HoSStrategy.h"
-#include "HoLStrategy.h"
-#include "OCStrategy.h"
-#include "UPStrategy.h"
+#include "ANStrategy.h"
 #include "CoSStrategy.h"
+#include "DTKStrategy.h"
 #include "FoSStrategy.h"
+#include "GDStrategy.h"
+#include "HoLStrategy.h"
+#include "HoSStrategy.h"
+#include "MechStrategy.h"
+#include "NexStrategy.h"
+#include "OCStrategy.h"
 #include "PoSStrategy.h"
+#include "SethStrategy.h"
+#include "Strategy.h"
 #include "TOCStrategy.h"
+#include "UKStrategy.h"
+#include "UPStrategy.h"
+#include "VHStrategy.h"
 
 class DungeonStrategyContext : public NamedObjectContext<Strategy>
 {

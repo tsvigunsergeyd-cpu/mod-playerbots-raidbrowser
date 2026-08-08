@@ -8,6 +8,7 @@
 #define PLAYERBOTS_SETHDATA_H
 
 #include "Common.h"
+#include "Position.h"
 #include <type_traits>
 
 namespace SethData
