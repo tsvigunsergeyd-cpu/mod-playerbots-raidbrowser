@@ -1456,6 +1456,9 @@ void PlayerbotAI::ChangeEngine(BotState type)
 
 void PlayerbotAI::ChangeEngineOnCombat()
 {
+    if (HasStrategy("wait for attack", BOT_STATE_COMBAT))
+        aiObjectContext->GetValue<time_t>("combat start time")->Set(time(nullptr));
+
     if (HasStrategy("stay", BOT_STATE_COMBAT))
     {
         aiObjectContext->GetValue<PositionInfo>("pos", "stay")
@@ -1465,6 +1468,9 @@ void PlayerbotAI::ChangeEngineOnCombat()
 
 void PlayerbotAI::ChangeEngineOnNonCombat()
 {
+    if (HasStrategy("wait for attack", BOT_STATE_COMBAT))
+        aiObjectContext->GetValue<time_t>("combat start time")->Set(0);
+
     if (HasStrategy("stay", BOT_STATE_NON_COMBAT))
     {
         aiObjectContext->GetValue<PositionInfo>("pos", "stay")->Reset();
