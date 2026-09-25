@@ -1103,6 +1103,9 @@ std::vector<std::string> PlayerbotHolder::HandlePlayerbotCommand(char const* arg
         {
             messages.push_back("SelfBot is now deactivated.");
             delete GET_PLAYERBOT_AI(master);
+
+            if (master->isTaxiCheater())
+                master->SetTaxiCheater(false);
         }
         else if (sPlayerbotAIConfig.selfBotLevel == 0)
             messages.push_back("SelfBot is disabled server-wide.");
