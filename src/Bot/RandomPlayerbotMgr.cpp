@@ -539,7 +539,7 @@ void RandomPlayerbotMgr::AssignAccountTypes()
             PlayerbotsDatabasePreparedStatement* stmt = PlayerbotsDatabase.GetPreparedStatement(PLAYERBOTS_INS_ACCOUNT_TYPE);
             stmt->SetData(0, accountId);
             stmt->SetData(1, uint8(0));
-            PlayerbotsDatabase.Execute(stmt);
+            PlayerbotsDatabase.DirectExecute(stmt);
             currentAssignments[accountId] = 0;
         }
     }
@@ -585,7 +585,7 @@ void RandomPlayerbotMgr::AssignAccountTypes()
                 PlayerbotsDatabasePreparedStatement* stmt = PlayerbotsDatabase.GetPreparedStatement(PLAYERBOTS_UPD_ACCOUNT_TYPE);
                 stmt->SetData(0, uint8(1));
                 stmt->SetData(1, accountId);
-                PlayerbotsDatabase.Execute(stmt);
+                PlayerbotsDatabase.DirectExecute(stmt);
                 currentAssignments[accountId] = 1;
                 assigned++;
             }
@@ -613,7 +613,7 @@ void RandomPlayerbotMgr::AssignAccountTypes()
                 PlayerbotsDatabasePreparedStatement* stmt = PlayerbotsDatabase.GetPreparedStatement(PLAYERBOTS_UPD_ACCOUNT_TYPE);
                 stmt->SetData(0, uint8(2));
                 stmt->SetData(1, accountId);
-                PlayerbotsDatabase.Execute(stmt);
+                PlayerbotsDatabase.DirectExecute(stmt);
                 currentAssignments[accountId] = 2;
                 assigned++;
             }
@@ -643,6 +643,12 @@ bool RandomPlayerbotMgr::IsAccountType(uint32 accountId, uint8 accountType)
     stmt->SetData(0, accountId);
     stmt->SetData(1, accountType);
     return PlayerbotsDatabase.Query(stmt) != nullptr;
+}
+
+bool RandomPlayerbotMgr::IsAddClassAccount(uint32 accountId) const
+{
+    return std::find(addClassTypeAccounts.begin(), addClassTypeAccounts.end(), accountId) !=
+           addClassTypeAccounts.end();
 }
 
 // Logs-in bots in 4 phases. Phase 1 logs Alliance bots up to how much is expected according to the faction ratio,
@@ -713,7 +719,7 @@ uint32 RandomPlayerbotMgr::AddRandomBots()
         for (uint32 accountId : accountsToUse)
         {
             CharacterDatabasePreparedStatement* stmt =
-                CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARS_BY_ACCOUNT_ID);
+                CharacterDatabase.GetPreparedStatement(CHAR_SEL_ACCOUNT_INFO_CHARS);
             stmt->SetData(0, accountId);
             PreparedQueryResult result = CharacterDatabase.Query(stmt);
             if (!result)
@@ -724,8 +730,8 @@ uint32 RandomPlayerbotMgr::AddRandomBots()
                 Field* fields = result->Fetch();
                 CharacterInfo info;
                 info.guid = fields[0].Get<uint32>();
-                info.rClass = fields[1].Get<uint8>();
-                info.rRace = fields[2].Get<uint8>();
+                info.rRace = fields[3].Get<uint8>();
+                info.rClass = fields[4].Get<uint8>();
                 info.accountId = accountId;
                 allCharacters.push_back(info);
             } while (result->NextRow());
@@ -1776,7 +1782,7 @@ void RandomPlayerbotMgr::Init()
 
     PlayerbotsDatabasePreparedStatement* stmt = PlayerbotsDatabase.GetPreparedStatement(PLAYERBOTS_DEL_RANDOM_BOTS_BY_EVENT);
     stmt->SetData(0, std::string("add"));
-    PlayerbotsDatabase.Execute(stmt);
+    PlayerbotsDatabase.DirectExecute(stmt);
 }
 
 void RandomPlayerbotMgr::InitArenaTeams()
