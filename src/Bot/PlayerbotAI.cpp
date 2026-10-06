@@ -3474,7 +3474,7 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, bool checkHasSpell,
     }
 }
 
-bool PlayerbotAI::CanCastSpell(uint32 spellid, GameObject* goTarget, bool checkHasSpell)
+bool PlayerbotAI::CanCastSpell(uint32 spellid, GameObject* goTarget, bool checkHasSpell, Item* castItem)
 {
     if (!spellid)
         return false;
@@ -3507,6 +3507,7 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, GameObject* goTarget, bool checkH
     // bot->SetTarget(goTarget->GetGUID());
     Spell* spell = new Spell(bot, spellInfo, TRIGGERED_NONE);
 
+    spell->m_CastItem = castItem;
     spell->m_targets.SetGOTarget(goTarget);
     Item* item = aiObjectContext->GetValue<Item*>("item for spell", spellid)->Get();
     spell->m_targets.SetItemTarget(item);
@@ -3686,9 +3687,10 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget)
 
     Spell* spell = new Spell(bot, spellInfo, TRIGGERED_NONE);
 
+    bool const isOpeningSpell =
+        spellInfo->HasEffect(SPELL_EFFECT_OPEN_LOCK) || spellInfo->HasEffect(SPELL_EFFECT_SKINNING);
     SpellCastTargets targets;
-    if (spellInfo->Effects[0].Effect != SPELL_EFFECT_OPEN_LOCK &&
-        (spellInfo->Targets & TARGET_FLAG_ITEM || spellInfo->Targets & TARGET_FLAG_GAMEOBJECT_ITEM))
+    if (!isOpeningSpell && (spellInfo->Targets & TARGET_FLAG_ITEM || spellInfo->Targets & TARGET_FLAG_GAMEOBJECT_ITEM))
     {
         Item* item = itemTarget ? itemTarget : aiObjectContext->GetValue<Item*>("item for spell", spellId)->Get();
         targets.SetItemTarget(item);
@@ -3719,20 +3721,37 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget)
         targets.SetUnitTarget(target);
     }
 
-    if (spellInfo->Effects[0].Effect == SPELL_EFFECT_OPEN_LOCK || spellInfo->Effects[0].Effect == SPELL_EFFECT_SKINNING)
+    if (isOpeningSpell)
     {
         LootObject loot = *aiObjectContext->GetValue<LootObject>("loot target");
         GameObject* go = GetGameObject(loot.guid);
         // Use the loot-target object if it exists and is spawned, and either no item was given or the item is its key.
         if (go && go->isSpawned() && (!itemTarget || itemTarget->GetEntry() == loot.reqItem))
         {
-            WorldPacket packetgouse(CMSG_GAMEOBJ_USE, 8);
-            packetgouse << loot.guid;
-            bot->GetSession()->HandleGameObjectUseOpcode(packetgouse);
+            switch (go->GetGoType())
+            {
+                case GAMEOBJECT_TYPE_DOOR:
+                case GAMEOBJECT_TYPE_BUTTON:
+                case GAMEOBJECT_TYPE_QUESTGIVER:
+                case GAMEOBJECT_TYPE_CHEST:
+                case GAMEOBJECT_TYPE_GENERIC:
+                case GAMEOBJECT_TYPE_SPELL_FOCUS:
+                case GAMEOBJECT_TYPE_GOOBER:
+                case GAMEOBJECT_TYPE_FLAGSTAND:
+                    break;
+                default:
+                {
+                    WorldPacket packetgouse(CMSG_GAMEOBJ_USE, 8);
+                    packetgouse << loot.guid;
+                    bot->GetSession()->HandleGameObjectUseOpcode(packetgouse);
+                    break;
+                }
+            }
+
             targets.SetGOTarget(go);
             faceTo = go;
-            if (itemTarget && spellInfo->Effects[0].Effect == SPELL_EFFECT_OPEN_LOCK &&
-                itemTarget->GetEntry() == loot.reqItem)
+            ServerFacade::instance().SetFacingTo(bot, go);
+            if (itemTarget && spellInfo->HasEffect(SPELL_EFFECT_OPEN_LOCK) && itemTarget->GetEntry() == loot.reqItem)
                 spell->m_CastItem = itemTarget;
         }
         else if (itemTarget)
@@ -3965,8 +3984,11 @@ bool PlayerbotAI::CastSpell(uint32 spellId, float x, float y, float z, Item* ite
         return false;
     }
 
-    if (spellInfo->Effects[0].Effect == SPELL_EFFECT_OPEN_LOCK || spellInfo->Effects[0].Effect == SPELL_EFFECT_SKINNING)
+    bool const isOpeningSpell =
+        spellInfo->HasEffect(SPELL_EFFECT_OPEN_LOCK) || spellInfo->HasEffect(SPELL_EFFECT_SKINNING);
+    if (isOpeningSpell)
     {
+        delete spell;
         return false;
     }
 
@@ -3979,17 +4001,6 @@ bool PlayerbotAI::CastSpell(uint32 spellId, float x, float y, float z, Item* ite
         spell->cancel();
         delete spell;
         return false;
-    }
-
-    if (spellInfo->Effects[0].Effect == SPELL_EFFECT_OPEN_LOCK || spellInfo->Effects[0].Effect == SPELL_EFFECT_SKINNING)
-    {
-        LootObject loot = *aiObjectContext->GetValue<LootObject>("loot target");
-        if (!loot.IsLootPossible(bot))
-        {
-            spell->cancel();
-            delete spell;
-            return false;
-        }
     }
 
     // WaitForSpellCast(spell);
