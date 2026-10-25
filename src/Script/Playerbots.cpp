@@ -27,12 +27,26 @@
 #include "PlayerbotGuildMgr.h"
 #include "PlayerbotSpellRepository.h"
 #include "PlayerbotWorldThreadProcessor.h"
+#include "PlayerbotOperations.h"
 #include "RandomPlayerbotMgr.h"
 #include "ScriptMgr.h"
 #include "ServerScript.h"
 #include "SessionScript.h"
 #include "WorldScript.h"
 #include "cmath"
+#include <ctime>
+#include <mutex>
+#include <unordered_map>
+
+struct RaidBrowserPendingInvite
+{
+    std::vector<ObjectGuid> botGuids;
+    std::vector<bool> invited;
+    time_t createdAt = 0;
+};
+
+static std::mutex raidBrowserPendingMutex;
+static std::unordered_map<ObjectGuid, RaidBrowserPendingInvite> raidBrowserPending;
 
 class PlayerbotsDatabaseScript : public DatabaseScript
 {
@@ -176,6 +190,11 @@ public:
 
     void OnPlayerBeforeLogout(Player* player) override
     {
+        {
+            std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
+            raidBrowserPending.erase(player->GetGUID());
+        }
+
         if (PlayerbotMgr* playerbotMgr = GET_PLAYERBOT_MGR(player))
         {
             PlayerbotAI* botAI = PlayerbotsMgr::instance().GetPlayerbotAI(player);
@@ -322,6 +341,7 @@ public:
                 }
 
                 std::unordered_set<ObjectGuid> usedGuids;
+                std::vector<ObjectGuid> pickedBots;
 
                 auto isEligible = [&](ObjectGuid const& guid) -> bool
                 {
@@ -392,7 +412,61 @@ public:
                         continue;
 
                     usedGuids.insert(picked);
+                    pickedBots.push_back(picked);
                     LOG_INFO("playerbots", "RaidBrowserAutoFill: class={}, guid={}, role={}", slot.className, picked.ToString(), slot.role);
+                }
+
+                // Step 3b+3c: asynchronously add the first 2 picked bots and invite them later.
+                if (player->GetGroup() != nullptr)
+                {
+                    LOG_INFO("playerbots", "RaidBrowserAutoFill: skipping auto-add, player already in a group");
+                }
+                else
+                {
+                    bool alreadyPending = false;
+                    {
+                        std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
+                        auto pendingIt = raidBrowserPending.find(player->GetGUID());
+                        if (pendingIt != raidBrowserPending.end() &&
+                            (time(nullptr) - pendingIt->second.createdAt) <= 60)
+                        {
+                            alreadyPending = true;
+                        }
+                    }
+
+                    if (alreadyPending)
+                    {
+                        LOG_INFO("playerbots", "RaidBrowserAutoFill: player already has pending invites");
+                    }
+                    else
+                    {
+                        PlayerbotMgr* playerMgr = PlayerbotsMgr::instance().GetPlayerbotMgr(player);
+                        if (playerMgr == nullptr)
+                        {
+                            LOG_WARN("playerbots", "RaidBrowserAutoFill: no PlayerbotMgr for player {}", player->GetName());
+                        }
+                        else
+                        {
+                            std::vector<ObjectGuid> toAdd;
+                            for (size_t i = 0; i < pickedBots.size() && i < 2; ++i)
+                                toAdd.push_back(pickedBots[i]);
+
+                            uint32 masterAccountId = player->GetSession() ? player->GetSession()->GetAccountId() : 0;
+                            for (ObjectGuid const& guid : toAdd)
+                                playerMgr->AddPlayerBot(guid, masterAccountId);
+
+                            if (!toAdd.empty())
+                            {
+                                RaidBrowserPendingInvite entry;
+                                entry.botGuids = toAdd;
+                                entry.invited.assign(toAdd.size(), false);
+                                entry.createdAt = time(nullptr);
+                                std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
+                                raidBrowserPending[player->GetGUID()] = std::move(entry);
+                                LOG_INFO("playerbots", "RaidBrowserAutoFill: queued {} bots for player {}", toAdd.size(), player->GetName());
+                            }
+                        }
+                    }
                 }
             }
 
@@ -704,6 +778,66 @@ public:
         sRandomPlayerbotMgr.UpdateSessions();  // Per-bot packet queues, world thread only
         PlayerbotWorldThreadProcessor::instance().Update(diff);
         sRandomPlayerbotMgr.UpdateAI(diff);  // World thread only
+
+        static uint32 raidBrowserPendingTimer = 0;
+        raidBrowserPendingTimer += diff;
+        if (raidBrowserPendingTimer < 1000)
+            return;
+        raidBrowserPendingTimer = 0;
+
+        time_t now = time(nullptr);
+        std::vector<ObjectGuid> toErase;
+        {
+            std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
+            for (auto& [playerGuid, entry] : raidBrowserPending)
+            {
+                Player* player = ObjectAccessor::FindPlayer(playerGuid);
+                if (!player)
+                {
+                    toErase.push_back(playerGuid);
+                    continue;
+                }
+
+                if (now - entry.createdAt > 60)
+                {
+                    LOG_WARN("playerbots", "RaidBrowserAutoFill: pending invites for player {} expired", player->GetName());
+                    toErase.push_back(playerGuid);
+                    continue;
+                }
+
+                for (size_t i = 0; i < entry.botGuids.size(); ++i)
+                {
+                    if (entry.invited[i])
+                        continue;
+
+                    Player* bot = ObjectAccessor::FindPlayer(entry.botGuids[i]);
+                    if (!bot)
+                        continue;
+
+                    LOG_INFO("playerbots", "RaidBrowserAutoFill: bot {} entered world for player {}", entry.botGuids[i].ToString(), player->GetName());
+
+                    auto inviteOp = std::make_unique<GroupInviteOperation>(playerGuid, entry.botGuids[i]);
+                    PlayerbotWorldThreadProcessor::instance().QueueOperation(std::move(inviteOp));
+                    LOG_INFO("playerbots", "RaidBrowserAutoFill: invited bot {}", entry.botGuids[i].ToString());
+                    entry.invited[i] = true;
+                }
+
+                bool allInvited = true;
+                for (bool v : entry.invited)
+                {
+                    if (!v)
+                    {
+                        allInvited = false;
+                        break;
+                    }
+                }
+                if (allInvited)
+                    toErase.push_back(playerGuid);
+            }
+
+            for (ObjectGuid const& guid : toErase)
+                raidBrowserPending.erase(guid);
+        }
     }
 
     // Runs before the sessions are kicked on server shutdown
