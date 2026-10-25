@@ -19,6 +19,7 @@
 #include "GatherNodeMgr.h"
 #include "GlobalScript.h"
 #include "GuildTaskMgr.h"
+#include "Group.h"
 #include "LFGMgr.h"
 #include "CharacterCache.h"
 #include "PlayerScript.h"
@@ -43,6 +44,8 @@ struct RaidBrowserPendingInvite
     std::vector<ObjectGuid> botGuids;
     std::vector<bool> invited;
     time_t createdAt = 0;
+    Difficulty difficulty = REGULAR_DIFFICULTY;
+    bool difficultySet = false;
 };
 
 static std::mutex raidBrowserPendingMutex;
@@ -428,7 +431,7 @@ public:
                         std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
                         auto pendingIt = raidBrowserPending.find(player->GetGUID());
                         if (pendingIt != raidBrowserPending.end() &&
-                            (time(nullptr) - pendingIt->second.createdAt) <= 60)
+                            (time(nullptr) - pendingIt->second.createdAt) <= 120)
                         {
                             alreadyPending = true;
                         }
@@ -448,8 +451,8 @@ public:
                         else
                         {
                             std::vector<ObjectGuid> toAdd;
-                            for (size_t i = 0; i < pickedBots.size() && i < 2; ++i)
-                                toAdd.push_back(pickedBots[i]);
+                            for (ObjectGuid const& guid : pickedBots)
+                                toAdd.push_back(guid);
 
                             uint32 masterAccountId = player->GetSession() ? player->GetSession()->GetAccountId() : 0;
                             for (ObjectGuid const& guid : toAdd)
@@ -461,6 +464,8 @@ public:
                                 entry.botGuids = toAdd;
                                 entry.invited.assign(toAdd.size(), false);
                                 entry.createdAt = time(nullptr);
+                                entry.difficulty = dungeon->difficulty;
+                                entry.difficultySet = false;
                                 std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
                                 raidBrowserPending[player->GetGUID()] = std::move(entry);
                                 LOG_INFO("playerbots", "RaidBrowserAutoFill: queued {} bots for player {}", toAdd.size(), player->GetName());
@@ -789,6 +794,7 @@ public:
         std::vector<ObjectGuid> toErase;
         {
             std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
+            uint32 invitesThisTick = 0;
             for (auto& [playerGuid, entry] : raidBrowserPending)
             {
                 Player* player = ObjectAccessor::FindPlayer(playerGuid);
@@ -798,9 +804,10 @@ public:
                     continue;
                 }
 
-                if (now - entry.createdAt > 60)
+                if (now - entry.createdAt > 120)
                 {
-                    LOG_WARN("playerbots", "RaidBrowserAutoFill: pending invites for player {} expired", player->GetName());
+                    LOG_WARN("playerbots", "RaidBrowserAutoFill: pending invites for player {} expired",
+                             player->GetName());
                     toErase.push_back(playerGuid);
                     continue;
                 }
@@ -814,12 +821,16 @@ public:
                     if (!bot)
                         continue;
 
-                    LOG_INFO("playerbots", "RaidBrowserAutoFill: bot {} entered world for player {}", entry.botGuids[i].ToString(), player->GetName());
+                    if (invitesThisTick >= 5)
+                        break;
+                    LOG_INFO("playerbots", "RaidBrowserAutoFill: bot {} entered world for player {}",
+                             entry.botGuids[i].ToString(), player->GetName());
 
                     auto inviteOp = std::make_unique<GroupInviteOperation>(playerGuid, entry.botGuids[i]);
                     PlayerbotWorldThreadProcessor::instance().QueueOperation(std::move(inviteOp));
                     LOG_INFO("playerbots", "RaidBrowserAutoFill: invited bot {}", entry.botGuids[i].ToString());
                     entry.invited[i] = true;
+                    ++invitesThisTick;
                 }
 
                 bool allInvited = true;
@@ -831,8 +842,39 @@ public:
                         break;
                     }
                 }
+
                 if (allInvited)
-                    toErase.push_back(playerGuid);
+                {
+                    Group* group = player->GetGroup();
+                    bool allMembers = (group != nullptr);
+                    if (allMembers)
+                    {
+                        for (ObjectGuid const& botGuid : entry.botGuids)
+                        {
+                            if (!group->IsMember(botGuid))
+                            {
+                                allMembers = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (allMembers && group)
+                    {
+                        if (!group->isRaidGroup() && group->GetMembersCount() >= 5)
+                            group->ConvertToRaid();
+
+                        if (!entry.difficultySet)
+                        {
+                            group->SetRaidDifficulty(entry.difficulty);
+                            LOG_INFO("playerbots", "RaidBrowserAutoFill: set raid difficulty {} for player {}",
+                                     static_cast<uint8>(entry.difficulty), player->GetName());
+                            entry.difficultySet = true;
+                        }
+
+                        toErase.push_back(playerGuid);
+                    }
+                }
             }
 
             for (ObjectGuid const& guid : toErase)
