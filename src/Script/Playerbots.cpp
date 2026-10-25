@@ -20,6 +20,7 @@
 #include "GlobalScript.h"
 #include "GuildTaskMgr.h"
 #include "LFGMgr.h"
+#include "CharacterCache.h"
 #include "PlayerScript.h"
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotCommandScript.h"
@@ -265,6 +266,136 @@ public:
             LOG_INFO("playerbots", "Player {} (guid {}) LFG raid request: roles={}, dungeon={}, map={}, difficulty={}, minlevel={}, maxlevel={}",
                      player->GetName(), player->GetGUID().ToString(), roles, dungeon->id, dungeon->map,
                      static_cast<uint8>(dungeon->difficulty), dungeon->minlevel, dungeon->maxlevel);
+            if (dungeon->id == 279 || dungeon->id == 280)
+            {
+                bool const is25 = (dungeon->id == 280);
+
+                uint8 teamId = player->GetTeamId(true);
+                bool isAlliance = (teamId == TEAM_ALLIANCE);
+
+                struct RaidRosterSlot
+                {
+                    uint8 classId;
+                    char const* className;
+                    char const* role;
+                };
+
+                std::vector<RaidRosterSlot> roster;
+                if (is25)
+                {
+                    roster.push_back({CLASS_WARRIOR, "warrior", "tank"});
+                    roster.push_back({CLASS_PALADIN, "paladin", "tank"});
+                    roster.push_back({CLASS_DEATH_KNIGHT, "death knight", "tank"});
+
+                    roster.push_back({CLASS_PRIEST, "priest", "healer"});
+                    roster.push_back({CLASS_PRIEST, "priest", "healer"});
+                    roster.push_back({CLASS_DRUID, "druid", "healer"});
+                    roster.push_back({CLASS_DRUID, "druid", "healer"});
+                    roster.push_back({CLASS_SHAMAN, "shaman", "healer"});
+                    roster.push_back({CLASS_PALADIN, "paladin", "healer"});
+
+                    for (int i = 0; i < 3; ++i)
+                        roster.push_back({CLASS_MAGE, "mage", "dps"});
+                    for (int i = 0; i < 3; ++i)
+                        roster.push_back({CLASS_WARLOCK, "warlock", "dps"});
+                    for (int i = 0; i < 2; ++i)
+                        roster.push_back({CLASS_HUNTER, "hunter", "dps"});
+                    for (int i = 0; i < 2; ++i)
+                        roster.push_back({CLASS_ROGUE, "rogue", "dps"});
+                    for (int i = 0; i < 2; ++i)
+                        roster.push_back({CLASS_DEATH_KNIGHT, "death knight", "dps"});
+                    roster.push_back({CLASS_WARRIOR, "warrior", "dps"});
+                    roster.push_back({CLASS_PALADIN, "paladin", "dps"});
+                    roster.push_back({CLASS_SHAMAN, "shaman", "dps"});
+                }
+                else
+                {
+                    roster.push_back({CLASS_WARRIOR, "warrior", "tank"});
+                    roster.push_back({CLASS_PALADIN, "paladin", "healer"});
+                    roster.push_back({CLASS_DRUID, "druid", "healer"});
+                    roster.push_back({CLASS_PRIEST, "priest", "healer"});
+                    roster.push_back({CLASS_SHAMAN, "shaman", "dps"});
+                    roster.push_back({CLASS_MAGE, "mage", "dps"});
+                    roster.push_back({CLASS_WARLOCK, "warlock", "dps"});
+                    roster.push_back({CLASS_HUNTER, "hunter", "dps"});
+                    roster.push_back({CLASS_DEATH_KNIGHT, "death knight", "tank"});
+                }
+
+                std::unordered_set<ObjectGuid> usedGuids;
+
+                auto isEligible = [&](ObjectGuid const& guid) -> bool
+                {
+                    if (usedGuids.find(guid) != usedGuids.end())
+                        return false;
+                    if (PlayerbotHolder::IsBotLoading(guid))
+                        return false;
+                    if (ObjectAccessor::FindConnectedPlayer(guid) != nullptr)
+                        return false;
+                    uint32 guildId = sCharacterCache->GetCharacterGuildIdByGuid(guid);
+                    if (guildId && PlayerbotGuildMgr::instance().IsRealGuild(guildId))
+                        return false;
+                    return true;
+                };
+
+                std::map<uint8, uint32> requiredCount;
+                for (auto const& slot : roster)
+                    requiredCount[slot.classId]++;
+
+                for (auto const& [classId, count] : requiredCount)
+                {
+                    char const* name = "unknown";
+                    for (auto const& slot : roster)
+                    {
+                        if (slot.classId == classId)
+                        {
+                            name = slot.className;
+                            break;
+                        }
+                    }
+
+                    auto cacheIt = sRandomPlayerbotMgr.addclassCache.find(RandomPlayerbotMgr::GetTeamClassIdx(isAlliance, classId));
+                    if (cacheIt == sRandomPlayerbotMgr.addclassCache.end())
+                    {
+                        if (count > 0)
+                            LOG_WARN("playerbots", "RaidBrowserAutoFill: too few candidates for class {} (required {}, available {})", name, count, 0);
+                        continue;
+                    }
+
+                    uint32 available = 0;
+                    for (ObjectGuid const& guid : cacheIt->second)
+                    {
+                        if (isEligible(guid))
+                            ++available;
+                    }
+
+                    if (available < count)
+                        LOG_WARN("playerbots", "RaidBrowserAutoFill: too few candidates for class {} (required {}, available {})", name, count, available);
+                }
+
+                for (auto const& slot : roster)
+                {
+                    auto cacheIt = sRandomPlayerbotMgr.addclassCache.find(RandomPlayerbotMgr::GetTeamClassIdx(isAlliance, slot.classId));
+                    if (cacheIt == sRandomPlayerbotMgr.addclassCache.end())
+                        continue;
+
+                    ObjectGuid picked = ObjectGuid::Empty;
+                    for (ObjectGuid const& guid : cacheIt->second)
+                    {
+                        if (isEligible(guid))
+                        {
+                            picked = guid;
+                            break;
+                        }
+                    }
+
+                    if (picked.IsEmpty())
+                        continue;
+
+                    usedGuids.insert(picked);
+                    LOG_INFO("playerbots", "RaidBrowserAutoFill: class={}, guid={}, role={}", slot.className, picked.ToString(), slot.role);
+                }
+            }
+
         }
 
         return true;

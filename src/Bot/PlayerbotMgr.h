@@ -63,6 +63,7 @@ public:
     std::string const LookupBots(Player* master);
     uint32 GetPlayerbotsCount() { return playerBots.size(); }
     uint32 GetPlayerbotsCountByClass(uint32 cls);
+    static bool IsBotLoading(ObjectGuid guid) { return botLoading.find(guid) != botLoading.end(); }
 
 protected:
     virtual void OnBotLoginInternal(Player* const bot) = 0;
