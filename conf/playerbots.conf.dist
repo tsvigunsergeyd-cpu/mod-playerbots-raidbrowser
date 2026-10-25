@@ -2753,3 +2753,6 @@ Playerbots.TargetPosRecalcDistance = 0.1
 
 # Allow bots to be summoned near innkeepers
 Playerbots.SummonAtInnkeepersEnabled = 1
+
+# Auto-fill raid groups via the raid browser (0 = disabled, 1 = enabled)
+Playerbots.RaidBrowserAutoFill = 0

@@ -276,6 +276,7 @@ public:
     std::map<uint32, std::pair<uint32, uint32>> ZoneBrackets;
     bool LogInGroupOnly, LogValuesPerTick;
     bool SummonAtInnkeepersEnabled;
+    bool RaidBrowserAutoFill;
     std::string CombatStrategies, NonCombatStrategies;
     std::string RandomBotCombatStrategies, RandomBotNonCombatStrategies;
     std::string ReactStrategies, RandomBotReactStrategies;

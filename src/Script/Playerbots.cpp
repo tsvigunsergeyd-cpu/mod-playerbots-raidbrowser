@@ -19,6 +19,7 @@
 #include "GatherNodeMgr.h"
 #include "GlobalScript.h"
 #include "GuildTaskMgr.h"
+#include "LFGMgr.h"
 #include "PlayerScript.h"
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotCommandScript.h"
@@ -140,7 +141,8 @@ public:
         PLAYERHOOK_CAN_PLAYER_USE_GUILD_CHAT,
         PLAYERHOOK_CAN_PLAYER_USE_CHANNEL_CHAT,
         PLAYERHOOK_ON_GIVE_EXP,
-        PLAYERHOOK_ON_BEFORE_TELEPORT
+        PLAYERHOOK_ON_BEFORE_TELEPORT,
+        PLAYERHOOK_CAN_JOIN_LFG
     }) {}
 
     void OnPlayerLogin(Player* player) override
@@ -241,6 +243,29 @@ public:
             Milliseconds(0));
 
         */
+
+        return true;
+    }
+
+    bool OnPlayerCanJoinLfg(Player* player, uint8 roles, std::set<uint32>& dungeons, std::string const& /*comment*/) override
+    {
+        if (!sPlayerbotAIConfig.RaidBrowserAutoFill)
+            return true;
+
+        if (player == nullptr || PlayerbotsMgr::instance().GetPlayerbotAI(player) != nullptr)
+            return true;
+
+        for (uint32 dungeonId : dungeons)
+        {
+            lfg::LFGDungeonData const* dungeon = sLFGMgr->GetLFGDungeon(dungeonId);
+
+            if (dungeon == nullptr || dungeon->type != lfg::LFG_TYPE_RAID)
+                continue;
+
+            LOG_INFO("playerbots", "Player {} (guid {}) LFG raid request: roles={}, dungeon={}, map={}, difficulty={}, minlevel={}, maxlevel={}",
+                     player->GetName(), player->GetGUID().ToString(), roles, dungeon->id, dungeon->map,
+                     static_cast<uint8>(dungeon->difficulty), dungeon->minlevel, dungeon->maxlevel);
+        }
 
         return true;
     }
