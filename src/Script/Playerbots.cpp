@@ -20,6 +20,7 @@
 #include "GlobalScript.h"
 #include "GuildTaskMgr.h"
 #include "Group.h"
+#include "GroupScript.h"
 #include "LFGMgr.h"
 #include "CharacterCache.h"
 #include "PlayerScript.h"
@@ -50,6 +51,31 @@ struct RaidBrowserPendingInvite
 
 static std::mutex raidBrowserPendingMutex;
 static std::unordered_map<ObjectGuid, RaidBrowserPendingInvite> raidBrowserPending;
+static std::unordered_map<ObjectGuid, std::vector<ObjectGuid>> raidBrowserAddedBots;
+static std::unordered_map<ObjectGuid, std::vector<ObjectGuid>> raidBrowserLogoutQueue;
+
+static void MoveRaidBrowserBotsToLogoutQueue(ObjectGuid guid)
+{
+    std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
+    std::vector<ObjectGuid> guids;
+    auto itAdded = raidBrowserAddedBots.find(guid);
+    if (itAdded != raidBrowserAddedBots.end())
+    {
+        guids.insert(guids.end(), itAdded->second.begin(), itAdded->second.end());
+        raidBrowserAddedBots.erase(itAdded);
+    }
+    auto itPending = raidBrowserPending.find(guid);
+    if (itPending != raidBrowserPending.end())
+    {
+        guids.insert(guids.end(), itPending->second.botGuids.begin(), itPending->second.botGuids.end());
+        raidBrowserPending.erase(itPending);
+    }
+    if (!guids.empty())
+    {
+        auto& q = raidBrowserLogoutQueue[guid];
+        q.insert(q.end(), guids.begin(), guids.end());
+    }
+}
 
 class PlayerbotsDatabaseScript : public DatabaseScript
 {
@@ -196,6 +222,8 @@ public:
         {
             std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
             raidBrowserPending.erase(player->GetGUID());
+            raidBrowserAddedBots.erase(player->GetGUID());
+            raidBrowserLogoutQueue.erase(player->GetGUID());
         }
 
         if (PlayerbotMgr* playerbotMgr = GET_PLAYERBOT_MGR(player))
@@ -808,6 +836,10 @@ public:
                 {
                     LOG_WARN("playerbots", "RaidBrowserAutoFill: pending invites for player {} expired",
                              player->GetName());
+                    auto& added = raidBrowserAddedBots[playerGuid];
+                    for (ObjectGuid& g : entry.botGuids)
+                        added.push_back(std::move(g));
+                    entry.botGuids.clear();
                     toErase.push_back(playerGuid);
                     continue;
                 }
@@ -872,6 +904,11 @@ public:
                             entry.difficultySet = true;
                         }
 
+                        auto& added = raidBrowserAddedBots[playerGuid];
+                        for (ObjectGuid& g : entry.botGuids)
+                            added.push_back(std::move(g));
+                        entry.botGuids.clear();
+
                         toErase.push_back(playerGuid);
                     }
                 }
@@ -879,6 +916,32 @@ public:
 
             for (ObjectGuid const& guid : toErase)
                 raidBrowserPending.erase(guid);
+        }
+
+        if (sPlayerbotAIConfig.RaidBrowserAutoFill)
+        {
+            std::unordered_map<ObjectGuid, std::vector<ObjectGuid>> queueCopy;
+            {
+                std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
+                queueCopy = std::move(raidBrowserLogoutQueue);
+                raidBrowserLogoutQueue.clear();
+            }
+
+            for (auto& [playerGuid, botGuids] : queueCopy)
+            {
+                Player* player = ObjectAccessor::FindPlayer(playerGuid);
+                if (player == nullptr)
+                    continue;
+
+                PlayerbotMgr* playerbotMgr = GET_PLAYERBOT_MGR(player);
+                if (playerbotMgr == nullptr)
+                    continue;
+
+                LOG_INFO("playerbots", "RaidBrowserAutoFill: cleanup, logging out {} bots for player {}",
+                         botGuids.size(), player->GetName());
+                for (ObjectGuid const& botGuid : botGuids)
+                    playerbotMgr->LogoutPlayerBot(botGuid);
+            }
         }
     }
 
@@ -939,6 +1002,28 @@ public:
     PlayerbotsBattlefieldScript() : BattlefieldScript("PlayerbotsBattlefieldScript") { }
 };
 
+class PlayerbotsGroupScript : public GroupScript
+{
+public:
+    PlayerbotsGroupScript() : GroupScript("PlayerbotsGroupScript",
+        { GROUPHOOK_ON_REMOVE_MEMBER, GROUPHOOK_ON_DISBAND }) {}
+
+    void OnRemoveMember(Group* /*group*/, ObjectGuid guid, RemoveMethod /*method*/, ObjectGuid /*kicker*/, char const* /*reason*/) override
+    {
+        MoveRaidBrowserBotsToLogoutQueue(guid);
+    }
+
+    void OnDisband(Group* group) override
+    {
+        if (group == nullptr)
+            return;
+
+        Group::MemberSlotList const& slots = group->GetMemberSlots();
+        for (Group::member_citerator itr = slots.begin(); itr != slots.end(); ++itr)
+            MoveRaidBrowserBotsToLogoutQueue(itr->guid);
+    }
+};
+
 void AddPlayerbotsSecureLoginScripts();
 void AddPlayerbotsSelfBotAfkScripts();
 void AddSC_MagtheridonBotScripts();
@@ -960,6 +1045,7 @@ void AddPlayerbotsScripts()
     new PlayerbotsAllMapScript();
     new PlayerbotsGlobalScript();
     new PlayerbotsWorldScript();
+    new PlayerbotsGroupScript();
     new PlayerBotsBGScript();
     AddPlayerbotsSecureLoginScripts();
     AddPlayerbotsSelfBotAfkScripts();
