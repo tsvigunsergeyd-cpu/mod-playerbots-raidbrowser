@@ -36,6 +36,7 @@
 #include "SessionScript.h"
 #include "WorldScript.h"
 #include "cmath"
+#include <algorithm>
 #include <ctime>
 #include <mutex>
 #include <unordered_map>
@@ -57,6 +58,8 @@ static std::unordered_map<ObjectGuid, std::vector<ObjectGuid>> raidBrowserLogout
 static void MoveRaidBrowserBotsToLogoutQueue(ObjectGuid guid)
 {
     std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
+
+    // Case 1: guid is a raid-browser owner (human player): move all their bots.
     std::vector<ObjectGuid> guids;
     auto itAdded = raidBrowserAddedBots.find(guid);
     if (itAdded != raidBrowserAddedBots.end())
@@ -74,6 +77,45 @@ static void MoveRaidBrowserBotsToLogoutQueue(ObjectGuid guid)
     {
         auto& q = raidBrowserLogoutQueue[guid];
         q.insert(q.end(), guids.begin(), guids.end());
+        return;
+    }
+
+    // Case 2: guid is an individual bot added by raid browser; queue only that bot.
+    ObjectGuid addedOwnerToErase{};
+    bool eraseAddedOwner = false;
+
+    for (auto& [ownerGuid, botGuids] : raidBrowserAddedBots)
+    {
+        auto botIt = std::find(botGuids.begin(), botGuids.end(), guid);
+        if (botIt != botGuids.end())
+        {
+            botGuids.erase(botIt);
+            auto& q = raidBrowserLogoutQueue[ownerGuid];
+            q.push_back(guid);
+            if (botGuids.empty())
+            {
+                addedOwnerToErase = ownerGuid;
+                eraseAddedOwner = true;
+            }
+            break;
+        }
+    }
+    if (eraseAddedOwner)
+        raidBrowserAddedBots.erase(addedOwnerToErase);
+
+    for (auto& [ownerGuid, entry] : raidBrowserPending)
+    {
+        auto botIt = std::find(entry.botGuids.begin(), entry.botGuids.end(), guid);
+        if (botIt != entry.botGuids.end())
+        {
+            size_t idx = static_cast<size_t>(botIt - entry.botGuids.begin());
+            entry.botGuids.erase(botIt);
+            if (idx < entry.invited.size())
+                entry.invited.erase(entry.invited.begin() + idx);
+            auto& q = raidBrowserLogoutQueue[ownerGuid];
+            q.push_back(guid);
+            break;
+        }
     }
 }
 
