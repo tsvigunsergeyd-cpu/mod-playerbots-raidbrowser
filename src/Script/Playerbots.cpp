@@ -19,7 +19,10 @@
 #include "GatherNodeMgr.h"
 #include "GlobalScript.h"
 #include "GuildTaskMgr.h"
+#include "Chat.h"
 #include "Group.h"
+#include "ObjectAccessor.h"
+#include "ObjectMgr.h"
 #include "GroupScript.h"
 #include "LFGMgr.h"
 #include "CharacterCache.h"
@@ -48,7 +51,49 @@ struct RaidBrowserPendingInvite
     time_t createdAt = 0;
     Difficulty difficulty = REGULAR_DIFFICULTY;
     bool difficultySet = false;
+    uint32 dungeonId = 0;
 };
+
+struct RaidBrowserPendingTeleport
+{
+    ObjectGuid playerGuid{};
+    std::vector<ObjectGuid> botGuids;
+    uint32 dungeonId = 0;
+};
+
+static std::unordered_map<uint32, std::string> const RaidBrowserTeleportTargets = {
+    {279, "IcecrownCitadelRaid"},
+    {280, "IcecrownCitadelRaid"}
+};
+
+static char const* GetRaidBrowserTeleportBlockReason(Player* player)
+{
+    if (player == nullptr)
+        return "player not found";
+
+    if (!player->IsAlive())
+        return "player is dead";
+
+    if (player->IsInCombat())
+        return "player is in combat";
+
+    if (player->GetDirectTransport() != nullptr)
+        return "player is on a transport";
+
+    if (player->IsInFlight())
+        return "player is taxi flying";
+
+    if (player->InBattleground())
+        return "player is in a battleground or arena";
+
+    if (player->GetMap() != nullptr && player->GetMap()->IsDungeon())
+        return "player is in an instance";
+
+    if (player->IsBeingTeleported())
+        return "player is already being teleported";
+
+    return nullptr;
+}
 
 static std::mutex raidBrowserPendingMutex;
 static std::unordered_map<ObjectGuid, RaidBrowserPendingInvite> raidBrowserPending;
@@ -360,6 +405,16 @@ public:
                      static_cast<uint8>(dungeon->difficulty), dungeon->minlevel, dungeon->maxlevel);
             if (dungeon->id == 279 || dungeon->id == 280)
             {
+                // Optional separate hunk: refuse assembly up front if the player cannot be teleported.
+                char const* blockReason = GetRaidBrowserTeleportBlockReason(player);
+                if (blockReason != nullptr)
+                {
+                    ChatHandler(player->GetSession()).PSendSysMessage("Raid browser assembly skipped: {}", blockReason);
+                    LOG_INFO("playerbots", "RaidBrowserAutoFill: assembly refused for player {} ({}): {}",
+                             player->GetName(), player->GetGUID().ToString(), blockReason);
+                    return false;
+                }
+
                 bool const is25 = (dungeon->id == 280);
 
                 uint8 teamId = player->GetTeamId(true);
@@ -536,6 +591,7 @@ public:
                                 entry.createdAt = time(nullptr);
                                 entry.difficulty = dungeon->difficulty;
                                 entry.difficultySet = false;
+                                entry.dungeonId = dungeon->id;
                                 std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
                                 raidBrowserPending[player->GetGUID()] = std::move(entry);
                                 LOG_INFO("playerbots", "RaidBrowserAutoFill: queued {} bots for player {}", toAdd.size(), player->GetName());
@@ -862,6 +918,7 @@ public:
 
         time_t now = time(nullptr);
         std::vector<ObjectGuid> toErase;
+        std::vector<RaidBrowserPendingTeleport> raidBrowserTeleports;
         {
             std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
             uint32 invitesThisTick = 0;
@@ -947,6 +1004,12 @@ public:
                         }
 
                         auto& added = raidBrowserAddedBots[playerGuid];
+                        RaidBrowserPendingTeleport teleportEntry;
+                        teleportEntry.playerGuid = playerGuid;
+                        teleportEntry.botGuids = entry.botGuids;
+                        teleportEntry.dungeonId = entry.dungeonId;
+                        raidBrowserTeleports.push_back(std::move(teleportEntry));
+
                         for (ObjectGuid& g : entry.botGuids)
                             added.push_back(std::move(g));
                         entry.botGuids.clear();
@@ -984,6 +1047,64 @@ public:
                 for (ObjectGuid const& botGuid : botGuids)
                     playerbotMgr->LogoutPlayerBot(botGuid);
             }
+        }
+
+        for (RaidBrowserPendingTeleport const& pendingTeleport : raidBrowserTeleports)
+        {
+            auto targetIt = RaidBrowserTeleportTargets.find(pendingTeleport.dungeonId);
+            if (targetIt == RaidBrowserTeleportTargets.end())
+                continue;
+
+            GameTele const* tele = sObjectMgr->GetGameTele(targetIt->second, true);
+            if (tele == nullptr)
+            {
+                LOG_WARN("playerbots", "RaidBrowserAutoFill: game_tele '{}' not found", targetIt->second);
+                continue;
+            }
+
+            Player* player = ObjectAccessor::FindPlayer(pendingTeleport.playerGuid);
+            char const* reason = GetRaidBrowserTeleportBlockReason(player);
+            if (reason != nullptr)
+            {
+                if (player != nullptr && player->GetSession() != nullptr)
+                    ChatHandler(player->GetSession()).PSendSysMessage("Raid browser teleport skipped: {}", reason);
+                LOG_INFO("playerbots", "RaidBrowserAutoFill: teleport skipped for player {} ({}): {}",
+                         player != nullptr ? player->GetName() : "?",
+                         pendingTeleport.playerGuid.ToString(), reason);
+                continue;
+            }
+
+            player->TeleportTo(tele->mapId, tele->position_x, tele->position_y, tele->position_z,
+                              tele->orientation);
+
+            uint32 teleportedBots = 0;
+            for (ObjectGuid const& botGuid : pendingTeleport.botGuids)
+            {
+                Player* bot = ObjectAccessor::FindPlayer(botGuid);
+                if (bot == nullptr || !bot->IsInWorld() || bot->IsBeingTeleported())
+                {
+                    LOG_INFO("playerbots", "RaidBrowserAutoFill: bot {} skipped for teleport", botGuid.ToString());
+                    continue;
+                }
+
+                char const* botReason = GetRaidBrowserTeleportBlockReason(bot);
+                if (botReason != nullptr)
+                {
+                    LOG_INFO("playerbots", "RaidBrowserAutoFill: bot {} skipped for teleport: {}",
+                             botGuid.ToString(), botReason);
+                    continue;
+                }
+
+                bot->GetMotionMaster()->Clear(true);
+                bot->StopMoving();
+                bot->TeleportTo(tele->mapId, tele->position_x, tele->position_y, tele->position_z,
+                                tele->orientation);
+                ++teleportedBots;
+            }
+
+            LOG_INFO("playerbots", "RaidBrowserAutoFill: teleported player {} ({}) and {} bots to {} (map {})",
+                     player->GetName(), pendingTeleport.playerGuid.ToString(), teleportedBots,
+                     targetIt->second, tele->mapId);
         }
     }
 
