@@ -26,10 +26,10 @@ public:
         };
 
         static ChatCommandTable playerbotsAccountCommandTable = {
-            {"setKey", HandleSetSecurityKeyCommand, SEC_PLAYER, Console::No},
-            {"link", HandleLinkAccountCommand, SEC_PLAYER, Console::No},
-            {"linkedAccounts", HandleViewLinkedAccountsCommand, SEC_PLAYER, Console::No},
-            {"unlink", HandleUnlinkAccountCommand, SEC_PLAYER, Console::No},
+            {"setKey", HandleSetSecurityKeyCommand, SEC_GAMEMASTER, Console::No},
+            {"link", HandleLinkAccountCommand, SEC_GAMEMASTER, Console::No},
+            {"linkedAccounts", HandleViewLinkedAccountsCommand, SEC_GAMEMASTER, Console::No},
+            {"unlink", HandleUnlinkAccountCommand, SEC_GAMEMASTER, Console::No},
         };
 
         static ChatCommandTable playerbotsCommandTable = {

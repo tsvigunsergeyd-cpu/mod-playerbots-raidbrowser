@@ -931,6 +931,15 @@ bool PlayerbotMgr::HandlePlayerbotMgrCommand(ChatHandler* handler, char const* a
         return false;
     }
 
+    std::string const firstWord = (args && *args) ? std::string(args).substr(0, std::string(args).find(' ')) : std::string();
+    if (!player->CanBeGameMaster() &&
+        firstWord != "remove" && firstWord != "logout" && firstWord != "rm" &&
+        firstWord != "list" && firstWord != "lookup")
+    {
+        handler->PSendSysMessage("This command is restricted.");
+        return false;
+    }
+
     std::vector<std::string> messages = mgr->HandlePlayerbotCommand(args, player);
     if (messages.empty())
         return true;
