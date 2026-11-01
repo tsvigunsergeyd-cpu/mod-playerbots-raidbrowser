@@ -555,6 +555,9 @@ public:
 
     Player* GetBot() { return bot; }
     Player* GetMaster() { return master; }
+    bool IsRaidBrowserBot() const { return !raidOwnerGuid.IsEmpty(); }
+    ObjectGuid GetRaidBrowserOwner() const { return raidOwnerGuid; }
+    void SetRaidBrowserOwner(ObjectGuid guid) { raidOwnerGuid = guid; }
     Player* FindNewMaster();
 
     // Get the group leader or the master of the bot.
@@ -629,6 +632,7 @@ public:
     void AddTimedEvent(std::function<void()> callback, uint32 delayMs);
 
 private:
+    ObjectGuid raidOwnerGuid;
     static void _fillGearScoreData(Player* player, Item* item, std::vector<uint32>* gearScore, uint32& twoHandScore,
                                    bool mixed = false);
     bool IsTellAllowed(PlayerbotSecurityLevel securityLevel = PLAYERBOT_SECURITY_ALLOW_ALL);

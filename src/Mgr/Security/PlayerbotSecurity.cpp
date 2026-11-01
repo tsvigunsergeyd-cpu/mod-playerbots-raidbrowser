@@ -47,6 +47,19 @@ PlayerbotSecurityLevel PlayerbotSecurity::LevelFor(Player* from, DenyReason* rea
         return PLAYERBOT_SECURITY_DENY_ALL;
     }
 
+    // step 9b: raid-browser bots obey only their owner
+    if (botAI->IsRaidBrowserBot())
+    {
+        if (from->GetGUID() != botAI->GetRaidBrowserOwner())
+        {
+            if (reason)
+                *reason = PLAYERBOT_DENY_NONE;
+            return PLAYERBOT_SECURITY_DENY_ALL;
+        }
+        if (!ignoreGroup && from->GetGroup() && from->GetGroup() == bot->GetGroup())
+            return PLAYERBOT_SECURITY_ALLOW_ALL;
+    }
+
     if (sPlayerbotAIConfig.IsInRandomAccountList(account))
     {
         // (duplicate check in case of faction change)

@@ -1711,6 +1711,8 @@ void PlayerbotMgr::OnBotLoginInternal(Player* const bot)
         return;
     }
     botAI->SetMaster(master);
+    if (master && sRandomPlayerbotMgr.IsAddclassBot(bot->GetGUID().GetCounter()))
+        botAI->SetRaidBrowserOwner(master->GetGUID());
     botAI->ResetStrategies();
 
     LOG_INFO("playerbots", "Bot {} logged in", bot->GetName().c_str());
