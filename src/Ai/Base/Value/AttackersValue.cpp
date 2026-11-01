@@ -8,6 +8,7 @@
 #include "CellImpl.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
+#include "PlayerbotAI.h"
 #include "Playerbots.h"
 #include "ReputationMgr.h"
 #include "ServerFacade.h"
@@ -24,6 +25,36 @@ GuidVector AttackersValue::Calculate()
 
     if (Group* group = bot->GetGroup())
         AddAttackersOf(group, targets);
+
+    // Fallback: mobs whose current victim is a non-tank group/raid member,
+    // even if they have not yet registered on any threat list.
+    if (PlayerbotAI::IsTank(bot) && bot->GetGroup())
+    {
+        GuidVector possible = AI_VALUE(GuidVector, "possible targets");
+        for (ObjectGuid const guid : possible)
+        {
+            Unit* mob = botAI->GetUnit(guid);
+            if (!mob || !mob->IsAlive() || !mob->IsHostileTo(bot))
+                continue;
+            if (!mob->IsInCombat())
+                continue;
+            Unit* victim = mob->GetVictim();
+            if (!victim || !victim->IsAlive())
+                continue;
+            Player* victimPlayer = victim->ToPlayer();
+            if (!victimPlayer || victimPlayer == bot)
+                continue;
+            if (!bot->IsInSameRaidWith(victimPlayer))
+                continue;
+            if (PlayerbotAI::IsTank(victimPlayer))
+                continue;
+            if (targets.count(mob))
+                continue;
+            if (!mob->IsInWorld() || mob->IsPolymorphed())
+                continue;
+            targets.insert(mob);
+        }
+    }
 
     RemoveNonThreating(targets);
 

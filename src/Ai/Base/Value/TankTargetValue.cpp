@@ -69,6 +69,21 @@ public:
     bool IsBetter(Unit* new_unit, Unit* old_unit)
     {
         Player* bot = botAI->GetBot();
+        auto isDanger = [bot](Unit* u) -> bool
+        {
+            if (!u || !u->IsInCombat())
+                return false;
+            Unit* v = u->GetVictim();
+            if (!v || !v->IsAlive())
+                return false;
+            Player* vp = v->ToPlayer();
+            return vp && vp != bot && bot->IsInSameRaidWith(vp) && !PlayerbotAI::IsTank(vp);
+        };
+        bool newDanger = isDanger(new_unit);
+        bool oldDanger = isDanger(old_unit);
+        if (newDanger != oldDanger)
+            return newDanger;
+
         // if group has multiple tanks, explicit main tank just focus on the current target
         Unit* currentTarget = botAI->GetAiObjectContext()->GetValue<Unit*>("current target")->Get();
         if (currentTarget && PlayerbotAI::IsExplicitMainTank(bot) && PlayerbotAI::GetGroupTankNum(bot) > 1)
