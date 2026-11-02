@@ -3729,7 +3729,7 @@ void PlayerbotFactory::InitTalentsByTemplate(uint32 specTab)
     //     return;
     // }
     uint32 cls = bot->getClass();
-    int startLevel = bot->GetLevel();
+    int startLevel = std::min<int>(bot->GetLevel(), 79);
     uint32 specIndex = sPlayerbotAIConfig.RandomClassSpecIndex[cls][specTab];
     uint32 classMask = bot->getClassMask();
     std::unordered_map<uint32, std::vector<TalentEntry const*>> spells_row;

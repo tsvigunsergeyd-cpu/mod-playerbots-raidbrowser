@@ -71,7 +71,7 @@ void AutoMaintenanceOnLevelupAction::LearnSpells(std::ostringstream* out)
     if (sPlayerbotAIConfig.AutoLearnTrainerSpells && sRandomPlayerbotMgr.IsRandomBot(bot))
         LearnTrainerSpells(out);
 
-    if (sPlayerbotAIConfig.AutoLearnQuestSpells && sRandomPlayerbotMgr.IsRandomBot(bot))
+    if (sPlayerbotAIConfig.AutoLearnQuestSpells && (sRandomPlayerbotMgr.IsRandomBot(bot) || sRandomPlayerbotMgr.IsAddclassBot(bot)))
         LearnQuestSpells(out);
 }
 

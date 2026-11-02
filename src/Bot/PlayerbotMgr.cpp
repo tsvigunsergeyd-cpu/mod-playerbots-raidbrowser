@@ -639,8 +639,7 @@ void PlayerbotHolder::OnBotLogin(Player* const bot)
     bool addClassBot = sRandomPlayerbotMgr.IsAccountType(accountId, 2);
     if (addClassBot && master && abs((int)master->GetLevel() - (int)bot->GetLevel()) > 3)
     {
-        // PlayerbotFactory factory(bot, master->GetLevel());
-        // factory.Randomize(false);
+        PlayerbotFactory::DestroyEquippedGear(bot);
         uint32 mixedGearScore =
             PlayerbotAI::GetMixedGearScore(master, true, false, 12) * sPlayerbotAIConfig.AutoInitEquipLevelLimitRatio;
         // work around: distinguish from 0 if no gear
@@ -648,6 +647,8 @@ void PlayerbotHolder::OnBotLogin(Player* const bot)
             mixedGearScore = 1;
         PlayerbotFactory factory(bot, master->GetLevel(), ITEM_QUALITY_LEGENDARY, mixedGearScore);
         factory.Randomize(false);
+        if (sPlayerbotAIConfig.EquipAndSpecPersistence)
+            factory.InitTalentsTree(false, true, true);
     }
 
     // bots join World chat if not solo oriented
