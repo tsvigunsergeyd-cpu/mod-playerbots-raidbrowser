@@ -2032,3 +2032,130 @@ void PlayerbotMgr::HandleUnlinkAccountCommand(Player* player, std::string const&
 
     ChatHandler(player->GetSession()).PSendSysMessage("Account unlinked successfully.");
 }
+
+std::string PlayerbotMgr::FillRaidByTemplate(Player* master, std::string const& name)
+{
+    auto tmplIt = sPlayerbotAIConfig.FillRaidTemplates.find(name);
+    if (tmplIt == sPlayerbotAIConfig.FillRaidTemplates.end())
+        return "fillraid: template '" + name + "' not configured";
+
+    std::vector<PlayerbotAIConfig::FillRaidSlot> const& slots = tmplIt->second;
+    if (slots.empty())
+        return "fillraid: template '" + name + "' is empty";
+
+    // Clear pending entries from previous fillraid runs
+    fillRaidPending.clear();
+
+    // Count group members (bots and live players) already in the group by (class, role) so we top-off instead of wiping.
+    Group* group = master->GetGroup();
+    std::map<std::pair<uint8, std::string>, int> filled;
+    if (group)
+    {
+        for (Group::member_citerator itr = group->GetMemberSlots().begin(); itr != group->GetMemberSlots().end(); ++itr)
+        {
+            Player* member = ObjectAccessor::FindPlayer(itr->guid);
+            if (!member)
+                continue;
+            uint8 cls = member->getClass();
+            // Use IsTank/IsHeal with bySpec=true - works for both bots and live players
+            // since IsTank/IsHeal fall through to spec-based detection when bySpec=true
+            std::string role;
+            if (PlayerbotAI::IsTank(member, true)) role = "tank";
+            else if (PlayerbotAI::IsHeal(member, true)) role = "heal";
+            else role = "dps";
+            filled[{cls, role}]++;
+        }
+    }
+
+    int filledCount = 0;
+    std::ostringstream missing;
+
+    for (auto const& slot : slots)
+    {
+        uint8 cls = slot.classId;
+        std::string role = slot.role;
+
+        // Skip already-filled matching slots.
+        auto key = std::make_pair(cls, role);
+        if (filled[key] > 0)
+        {
+            filled[key]--;
+            continue;
+        }
+
+        // For dps-filler slots (classId == 0), try dps-capable classes.
+        if (cls == 0)
+        {
+            // Try dps classes in order of preference
+            for (uint8 tryCls : {CLASS_ROGUE, CLASS_HUNTER, CLASS_MAGE, CLASS_WARLOCK, CLASS_WARRIOR})
+            {
+                ObjectGuid testGuid = PickAddclassBotByClass(master->GetTeamId(true) == TEAM_ALLIANCE, tryCls);
+                if (!testGuid.IsEmpty())
+                {
+                    cls = tryCls;
+                    break;
+                }
+            }
+        }
+
+        ObjectGuid guid = PickAddclassBotByClass(master->GetTeamId(true) == TEAM_ALLIANCE, cls);
+        if (guid.IsEmpty())
+        {
+            if (slot.classId == 0)
+                missing << "anyDps:" << role << " ";
+            else
+                missing << slot.classId << ":" << role << " ";
+            continue;
+        }
+
+        AddPlayerBot(guid, master->GetSession()->GetAccountId());
+        fillRaidPending[guid] = FillRaidPendingSpec{cls, role, SpecNoForClassRole(cls, role), false};
+        filledCount++;
+    }
+
+    std::ostringstream out;
+    out << "fillraid " << name << ": added " << filledCount << "/" << slots.size();
+    if (!missing.str().empty())
+        out << ". Missing pool chars: " << missing.str();
+    return out.str();
+}
+
+int PlayerbotMgr::SpecNoForClassRole(uint8 classId, std::string const& role)
+{
+    static std::map<std::pair<uint8, std::string>, int> const table = {
+        {{1,  "tank"}, 2}, {{1,  "dps"}, 0},
+        {{2,  "tank"}, 1}, {{2,  "heal"}, 0}, {{2,  "dps"}, 2},
+        {{3,  "dps"}, 0},
+        {{4,  "dps"}, 1},
+        {{5,  "heal"}, 0}, {{5,  "dps"}, 2},
+        {{6,  "tank"}, 0}, {{6,  "dps"}, 1},
+        {{7,  "heal"}, 2}, {{7,  "dps"}, 1},
+        {{8,  "dps"}, 2},
+        {{9,  "dps"}, 0},
+        {{11, "tank"}, 1}, {{11, "heal"}, 2}, {{11, "dps"}, 3},
+    };
+
+    auto it = table.find({classId, role});
+    return it != table.end() ? it->second : -1;
+}
+
+ObjectGuid PlayerbotMgr::PickAddclassBotByClass(bool isAlliance, uint8 classId)
+{
+    auto const& cache = sRandomPlayerbotMgr.addclassCache[RandomPlayerbotMgr::GetTeamClassIdx(isAlliance, classId)];
+
+    for (ObjectGuid guid : cache)
+    {
+        if (fillRaidPending.count(guid))
+            continue;
+
+        Player* bot = ObjectAccessor::FindPlayer(guid);
+        if (!bot || !bot->IsInWorld())
+            continue;
+
+        if (bot->GetGroup())
+            continue;
+
+        return guid;
+    }
+    return ObjectGuid::Empty;
+}

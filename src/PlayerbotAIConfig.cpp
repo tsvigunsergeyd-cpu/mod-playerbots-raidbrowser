@@ -797,7 +797,73 @@ bool PlayerbotAIConfig::Initialize()
     LOG_INFO("server.loading", "       mod-playerbots initialized      ");
     LOG_INFO("server.loading", "---------------------------------------");
 
+    LoadFillRaidTemplates();
+
     return true;
+}
+
+void PlayerbotAIConfig::LoadFillRaidTemplates()
+{
+    FillRaidTemplates.clear();
+
+    // sConfigMgr does not enumerate keys by prefix, so the list of template names
+    // is configured explicitly via Playerbots.FillRaid.Templates.
+    std::string list = sConfigMgr->GetOption<std::string>("Playerbots.FillRaid.Templates", "25");
+
+    std::vector<std::string> names;
+    {
+        std::stringstream ss(list);
+        std::string item;
+        while (std::getline(ss, item, ','))
+        {
+            item.erase(0, item.find_first_not_of(" \t"));
+            item.erase(item.find_last_not_of(" \t") + 1);
+            if (!item.empty())
+                names.push_back(item);
+        }
+    }
+
+    for (std::string const& tmpl : names)
+    {
+        std::string prefix = "Playerbots.FillRaid." + tmpl + ".Slot.";
+        std::vector<FillRaidSlot> slots;
+
+        for (uint32 n = 0; ; ++n)
+        {
+            std::string key   = prefix + std::to_string(n);
+            std::string value = sConfigMgr->GetOption<std::string>(key, "");
+            if (value.empty())
+                break;
+
+            auto colon = value.find(':');
+            if (colon == std::string::npos)
+            {
+                LOG_ERROR("playerbots", "FillRaid: malformed slot '{}' = '{}' (expected <classId>:<role>)", key, value);
+                continue;
+            }
+
+            uint8 cls = 0;
+            try { cls = static_cast<uint8>(std::stoi(value.substr(0, colon))); }
+            catch (...) { LOG_ERROR("playerbots", "FillRaid: bad classId in '{}' = '{}'", key, value); continue; }
+
+            std::string role = value.substr(colon + 1);
+            std::transform(role.begin(), role.end(), role.begin(),
+                           [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+
+            if (role != "tank" && role != "heal" && role != "dps")
+            {
+                LOG_ERROR("playerbots", "FillRaid: slot '{}' has unknown role '{}'", key, role);
+                continue;
+            }
+
+            slots.push_back(FillRaidSlot{cls, role});
+        }
+
+        if (!slots.empty())
+            FillRaidTemplates[tmpl] = std::move(slots);
+    }
+
+    LOG_INFO("playerbots", "FillRaid: loaded {} template(s)", FillRaidTemplates.size());
 }
 
 // Loads Playerbots.LevelBrackets.* and Playerbots.ResetBotLevel.* (see RandomBotLevelMgr). Also

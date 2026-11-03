@@ -91,6 +91,21 @@ public:
 
     Player* GetMaster() const { return master; };
 
+    // FillRaid support
+    struct FillRaidPendingSpec
+    {
+        uint8 classId = 0;
+        std::string role;
+        int specNo = -1;
+        bool invited = false;
+    };
+
+    std::map<ObjectGuid, FillRaidPendingSpec> fillRaidPending;
+
+    static int SpecNoForClassRole(uint8 classId, std::string const& role);
+    ObjectGuid PickAddclassBotByClass(bool isAlliance, uint8 classId);
+    std::string FillRaidByTemplate(Player* master, std::string const& name);
+
     void SaveToDB();
 
     void HandleSetSecurityKeyCommand(Player* player, std::string const& key);

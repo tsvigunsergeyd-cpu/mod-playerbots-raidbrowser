@@ -431,6 +431,19 @@ public:
     int32 AddClassCommand;
     int32 AddClassAccountPoolSize;
     bool AddClassRandomCharacter;
+
+    // FillRaid support (conf: Playerbots.FillRaid.<tmpl>.Slot.<n> = <classId>:<role>)
+    struct FillRaidSlot
+    {
+        uint8 classId = 0;      // 0 = any dps filler
+        std::string role;       // "tank" / "heal" / "dps"
+    };
+
+    // Key is the template name as written in config (e.g. "25").
+    std::map<std::string, std::vector<FillRaidSlot>> FillRaidTemplates;
+
+    void LoadFillRaidTemplates();
+
     int32 MaintenanceCommand;
     bool AltMaintenanceAttunementQs,
             AltMaintenanceBags,
