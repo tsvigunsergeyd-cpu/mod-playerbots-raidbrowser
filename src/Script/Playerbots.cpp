@@ -976,7 +976,7 @@ public:
                     if (invitesThisTick >= 5)
                         break;
 
-                    // Apply premade spec/role from fillraid template (if we know it)
+                    // Apply full prep: skills, spells, gear, gems, unbind, attunements + our spec
                     if (i < entry.classIds.size() && i < entry.roles.size())
                     {
                         uint8 classId = entry.classIds[i];
@@ -984,8 +984,22 @@ public:
                         int specNo = SpecNoForClassRole(classId, role);
                         if (specNo >= 0)
                         {
+                            PlayerbotFactory factory(bot, bot->GetLevel());
+
+                            // 1) Full cycle: skills, spells, gear, gems, unbind, attunements
+                            factory.Randomize(false);
+
+                            // 2) Our spec OVER the random one (Randomize sets a random spec)
                             PlayerbotFactory::InitTalentsBySpecNo(bot, specNo, true);
-                            LOG_INFO("playerbots", "RaidBrowserAutoFill: applied spec {} to bot {} (class={}, role={})",
+
+                            // 3) Re-gear for OUR spec (Randomize geared for the random spec)
+                            factory.InitEquipment(false);
+                            factory.ApplyEnchantAndGemsNew(true);
+
+                            // 4) Consumables (food, flasks, potions)
+                            factory.InitConsumables();
+
+                            LOG_INFO("playerbots", "RaidBrowserAutoFill: applied full prep (spec {} + gear + gems + skills + unbind) to bot {} (class={}, role={})",
                                      specNo, entry.botGuids[i].ToString(), (uint32)classId, role);
                         }
                     }

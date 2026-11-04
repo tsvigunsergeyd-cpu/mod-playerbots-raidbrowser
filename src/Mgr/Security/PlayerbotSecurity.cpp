@@ -26,6 +26,15 @@ PlayerbotSecurityLevel PlayerbotSecurity::LevelFor(Player* from, DenyReason* rea
         return PLAYERBOT_SECURITY_DENY_ALL;
     }
 
+    // Raid-browser owner can always command their own bots (summon, follow, etc.),
+    // even before they join the group (async invite in flight).
+    {
+        PlayerbotAI* ownerCheckAI = GET_PLAYERBOT_AI(bot);
+        if (ownerCheckAI && ownerCheckAI->IsRaidBrowserBot() &&
+            from->GetGUID() == ownerCheckAI->GetRaidBrowserOwner())
+            return PLAYERBOT_SECURITY_ALLOW_ALL;
+    }
+
     // GMs always have full access
     if (from->CanBeGameMaster())
         return PLAYERBOT_SECURITY_ALLOW_ALL;
