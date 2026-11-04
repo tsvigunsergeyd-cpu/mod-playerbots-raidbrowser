@@ -145,48 +145,6 @@ Playerbots.AddClassCommand = 1
 # Default: 0 (always the same character)
 Playerbots.AddClassRandomCharacter = 0
 
-####################################################################################################
-# FILLRAID TEMPLATES
-#
-# fillraid <name> builds a raid group from the addclass pool according to a template.
-# Each slot is "classId:role" where classId: 1 warrior, 2 paladin, 3 hunter, 4 rogue,
-# 5 priest, 6 dk, 7 shaman, 8 mage, 9 warlock, 11 druid. role: tank / heal / dps.
-# classId = 0 means any dps class (filler slot).
-# Templates are indexed by number: Playerbots.FillRaid.<tmpl>.Slot.<n>
-#
-# Example: 25-man template (3 tanks, 6 healers, 16 dps).
-# Hard classes: 3 paladins, 2 shamans, 2 druids, 2 priests, 1 dk, 1 warlock.
-# Remaining dps slots are fillers (any dps class).
-# Comma-separated list of fillraid template names to load.
-# Each name must have a matching Playerbots.FillRaid.<name>.Slot.<n> block.
-Playerbots.FillRaid.Templates = 25
-
-Playerbots.FillRaid.25.Slot.0 = 2:tank
-Playerbots.FillRaid.25.Slot.1 = 2:heal
-Playerbots.FillRaid.25.Slot.2 = 2:dps
-Playerbots.FillRaid.25.Slot.3 = 7:heal
-Playerbots.FillRaid.25.Slot.4 = 7:dps
-Playerbots.FillRaid.25.Slot.5 = 11:tank
-Playerbots.FillRaid.25.Slot.6 = 11:heal
-Playerbots.FillRaid.25.Slot.7 = 11:dps
-Playerbots.FillRaid.25.Slot.8 = 5:heal
-Playerbots.FillRaid.25.Slot.9 = 5:dps
-Playerbots.FillRaid.25.Slot.10 = 6:tank
-Playerbots.FillRaid.25.Slot.11 = 9:dps
-Playerbots.FillRaid.25.Slot.12 = 0:dps
-Playerbots.FillRaid.25.Slot.13 = 0:dps
-Playerbots.FillRaid.25.Slot.14 = 0:dps
-Playerbots.FillRaid.25.Slot.15 = 0:dps
-Playerbots.FillRaid.25.Slot.16 = 0:dps
-Playerbots.FillRaid.25.Slot.17 = 0:dps
-Playerbots.FillRaid.25.Slot.18 = 0:dps
-Playerbots.FillRaid.25.Slot.19 = 0:dps
-Playerbots.FillRaid.25.Slot.20 = 0:dps
-Playerbots.FillRaid.25.Slot.21 = 0:dps
-Playerbots.FillRaid.25.Slot.22 = 0:dps
-Playerbots.FillRaid.25.Slot.23 = 0:dps
-Playerbots.FillRaid.25.Slot.24 = 0:dps
-
 # Bot group invitation permission level (0 = GM only, 1 = accept based on level, 2 = always accept)
 # Default: 1 (accept based on level)
 Playerbots.GroupInvitationPermission = 1
