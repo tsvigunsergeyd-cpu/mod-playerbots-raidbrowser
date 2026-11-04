@@ -431,6 +431,18 @@ public:
     int32 AddClassCommand;
     int32 AddClassAccountPoolSize;
     bool AddClassRandomCharacter;
+
+    // FillRaid template data (consumed by RaidBrowserAutoFill in Script/Playerbots.cpp)
+    struct FillRaidSlot
+    {
+        uint8 classId = 0;      // 0 = any dps filler
+        std::string role;       // "tank" / "heal" / "dps"
+    };
+
+    std::map<std::string, std::vector<FillRaidSlot>> FillRaidTemplates;
+
+    void LoadFillRaidTemplates();
+
     int32 MaintenanceCommand;
     bool AltMaintenanceAttunementQs,
             AltMaintenanceBags,

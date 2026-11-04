@@ -29,6 +29,7 @@
 #include "PlayerScript.h"
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotCommandScript.h"
+#include "PlayerbotFactory.h"
 #include "PlayerbotGuildMgr.h"
 #include "PlayerbotSpellRepository.h"
 #include "PlayerbotWorldThreadProcessor.h"
@@ -44,10 +45,32 @@
 #include <mutex>
 #include <unordered_map>
 
+// Maps (classId, role) -> premade spec number (Playerbots.PremadeSpecName.<class>.<specNo>).
+// -1 means unknown combination.
+static int SpecNoForClassRole(uint8 classId, std::string const& role)
+{
+    static std::map<std::pair<uint8, std::string>, int> const table = {
+        {{1,  "tank"}, 2}, {{1,  "dps"}, 0},
+        {{2,  "tank"}, 1}, {{2,  "heal"}, 0}, {{2,  "dps"}, 2},
+        {{3,  "dps"}, 0},
+        {{4,  "dps"}, 1},
+        {{5,  "heal"}, 0}, {{5,  "dps"}, 2},
+        {{6,  "tank"}, 0}, {{6,  "dps"}, 1},
+        {{7,  "heal"}, 2}, {{7,  "dps"}, 1},
+        {{8,  "dps"}, 2},
+        {{9,  "dps"}, 0},
+        {{11, "tank"}, 1}, {{11, "heal"}, 2}, {{11, "dps"}, 3},
+    };
+    auto it = table.find({classId, role});
+    return it != table.end() ? it->second : -1;
+}
+
 struct RaidBrowserPendingInvite
 {
     std::vector<ObjectGuid> botGuids;
     std::vector<bool> invited;
+    std::vector<uint8> classIds;         // parallel to botGuids
+    std::vector<std::string> roles;      // parallel to botGuids
     time_t createdAt = 0;
     Difficulty difficulty = REGULAR_DIFFICULTY;
     bool difficultySet = false;
@@ -157,6 +180,10 @@ static void MoveRaidBrowserBotsToLogoutQueue(ObjectGuid guid)
             entry.botGuids.erase(botIt);
             if (idx < entry.invited.size())
                 entry.invited.erase(entry.invited.begin() + idx);
+            if (idx < entry.classIds.size())
+                entry.classIds.erase(entry.classIds.begin() + idx);
+            if (idx < entry.roles.size())
+                entry.roles.erase(entry.roles.begin() + idx);
             auto& q = raidBrowserLogoutQueue[ownerGuid];
             q.push_back(guid);
             break;
@@ -342,46 +369,6 @@ public:
     bool OnPlayerBeforeTeleport(Player* /*player*/, uint32 /*mapid*/, float /*x*/, float /*y*/, float /*z*/,
                                 float /*orientation*/, uint32 /*options*/, Unit* /*target*/) override
     {
-        /* for now commmented out until proven its actually required
-        * havent seen any proof CleanVisibilityReferences() is needed
-
-        // If the player is not safe to touch, do nothing
-        if (!player)
-            return true;
-
-        // If same map or not in world do nothing
-        if (!player->IsInWorld() || player->GetMapId() == mapid)
-            return true;
-
-        // If this is a SelfBot, do nothing
-        PlayerbotAI* botAI = GET_PLAYERBOT_AI(player);
-        if (!botAI || IsSelfBot(player))
-            return true;
-
-        // Cross-map bot teleport: defer visibility reference cleanup.
-        // CleanVisibilityReferences() erases this bot's GUID from other objects' visibility containers.
-        // This is intentionally done via the event queue (instead of directly here) because erasing
-        // from other players' visibility maps inside the teleport call stack can hit unsafe re-entrancy
-        // or iterator invalidation while visibility updates are in progress
-        ObjectGuid guid = player->GetGUID();
-        player->m_Events.AddEventAtOffset(
-            [guid, mapid]()
-            {
-                // do nothing, if the player is not safe to touch
-                Player* p = ObjectAccessor::FindPlayer(guid);
-                if (!p || !p->IsInWorld() || p->IsDuringRemoveFromWorld())
-                    return;
-
-                // do nothing if we are already on the target map
-                if (p->GetMapId() == mapid)
-                    return;
-
-                p->GetObjectVisibilityContainer().CleanVisibilityReferences();
-            },
-            Milliseconds(0));
-
-        */
-
         return true;
     }
 
@@ -405,7 +392,6 @@ public:
                      static_cast<uint8>(dungeon->difficulty), dungeon->minlevel, dungeon->maxlevel);
             if (dungeon->id == 279 || dungeon->id == 280)
             {
-                // Optional separate hunk: refuse assembly up front if the player cannot be teleported.
                 char const* blockReason = GetRaidBrowserTeleportBlockReason(player);
                 if (blockReason != nullptr)
                 {
@@ -430,30 +416,75 @@ public:
                 std::vector<RaidRosterSlot> roster;
                 if (is25)
                 {
-                    roster.push_back({CLASS_WARRIOR, "warrior", "tank"});
-                    roster.push_back({CLASS_PALADIN, "paladin", "tank"});
-                    roster.push_back({CLASS_DEATH_KNIGHT, "death knight", "tank"});
+                    auto const& templates = sPlayerbotAIConfig.FillRaidTemplates;
+                    auto tmplIt = templates.find("25");
+                    if (tmplIt != templates.end() && !tmplIt->second.empty())
+                    {
+                        static std::map<uint8, char const*> const classNames = {
+                            {CLASS_WARRIOR, "warrior"}, {CLASS_PALADIN, "paladin"},
+                            {CLASS_HUNTER, "hunter"},   {CLASS_ROGUE, "rogue"},
+                            {CLASS_PRIEST, "priest"},   {CLASS_DEATH_KNIGHT, "death knight"},
+                            {CLASS_SHAMAN, "shaman"},   {CLASS_MAGE, "mage"},
+                            {CLASS_WARLOCK, "warlock"}, {CLASS_DRUID, "druid"},
+                        };
 
-                    roster.push_back({CLASS_PRIEST, "priest", "healer"});
-                    roster.push_back({CLASS_PRIEST, "priest", "healer"});
-                    roster.push_back({CLASS_DRUID, "druid", "healer"});
-                    roster.push_back({CLASS_DRUID, "druid", "healer"});
-                    roster.push_back({CLASS_SHAMAN, "shaman", "healer"});
-                    roster.push_back({CLASS_PALADIN, "paladin", "healer"});
+                        uint32 realTanks = 0, realHeals = 0, realDps = 0;
+                        if (Group* existingGroup = player->GetGroup())
+                        {
+                            for (Group::member_citerator itr = existingGroup->GetMemberSlots().begin();
+                                 itr != existingGroup->GetMemberSlots().end(); ++itr)
+                            {
+                                Player* member = ObjectAccessor::FindPlayer(itr->guid);
+                                if (!member || member == player)
+                                    continue;
+                                if (PlayerbotsMgr::instance().GetPlayerbotAI(member) != nullptr)
+                                    continue;
+                                if (PlayerbotAI::IsTank(member, true))       ++realTanks;
+                                else if (PlayerbotAI::IsHeal(member, true))  ++realHeals;
+                                else                                          ++realDps;
+                            }
+                        }
 
-                    for (int i = 0; i < 3; ++i)
-                        roster.push_back({CLASS_MAGE, "mage", "dps"});
-                    for (int i = 0; i < 3; ++i)
-                        roster.push_back({CLASS_WARLOCK, "warlock", "dps"});
-                    for (int i = 0; i < 2; ++i)
-                        roster.push_back({CLASS_HUNTER, "hunter", "dps"});
-                    for (int i = 0; i < 2; ++i)
-                        roster.push_back({CLASS_ROGUE, "rogue", "dps"});
-                    for (int i = 0; i < 2; ++i)
-                        roster.push_back({CLASS_DEATH_KNIGHT, "death knight", "dps"});
-                    roster.push_back({CLASS_WARRIOR, "warrior", "dps"});
-                    roster.push_back({CLASS_PALADIN, "paladin", "dps"});
-                    roster.push_back({CLASS_SHAMAN, "shaman", "dps"});
+                        if (realTanks || realHeals || realDps)
+                        {
+                            LOG_INFO("playerbots", "RaidBrowserAutoFill: live group tanks={}, heals={}, dps={}",
+                                     realTanks, realHeals, realDps);
+                        }
+
+                        for (auto const& slot : tmplIt->second)
+                        {
+                            if (slot.role == "tank" && realTanks > 0) { --realTanks; continue; }
+                            if (slot.role == "heal" && realHeals > 0) { --realHeals; continue; }
+                            if (slot.role == "dps"  && realDps   > 0) { --realDps;   continue; }
+
+                            uint8 cls = slot.classId;
+                            auto nameIt = classNames.find(cls);
+                            char const* name = nameIt != classNames.end() ? nameIt->second : "unknown";
+                            roster.push_back({cls, name, slot.role.c_str()});
+                        }
+                    }
+                    else
+                    {
+                        roster.push_back({CLASS_WARRIOR, "warrior", "tank"});
+                        roster.push_back({CLASS_PALADIN, "paladin", "tank"});
+                        roster.push_back({CLASS_DEATH_KNIGHT, "death knight", "tank"});
+
+                        roster.push_back({CLASS_PRIEST, "priest", "healer"});
+                        roster.push_back({CLASS_PRIEST, "priest", "healer"});
+                        roster.push_back({CLASS_DRUID, "druid", "healer"});
+                        roster.push_back({CLASS_DRUID, "druid", "healer"});
+                        roster.push_back({CLASS_SHAMAN, "shaman", "healer"});
+                        roster.push_back({CLASS_PALADIN, "paladin", "healer"});
+
+                        for (int k = 0; k < 3; ++k) roster.push_back({CLASS_MAGE, "mage", "dps"});
+                        for (int k = 0; k < 3; ++k) roster.push_back({CLASS_WARLOCK, "warlock", "dps"});
+                        for (int k = 0; k < 2; ++k) roster.push_back({CLASS_HUNTER, "hunter", "dps"});
+                        for (int k = 0; k < 2; ++k) roster.push_back({CLASS_ROGUE, "rogue", "dps"});
+                        for (int k = 0; k < 2; ++k) roster.push_back({CLASS_DEATH_KNIGHT, "death knight", "dps"});
+                        roster.push_back({CLASS_WARRIOR, "warrior", "dps"});
+                        roster.push_back({CLASS_PALADIN, "paladin", "dps"});
+                        roster.push_back({CLASS_SHAMAN, "shaman", "dps"});
+                    }
                 }
                 else
                 {
@@ -470,6 +501,8 @@ public:
 
                 std::unordered_set<ObjectGuid> usedGuids;
                 std::vector<ObjectGuid> pickedBots;
+                std::vector<uint8> pickedClassIds;
+                std::vector<std::string> pickedRoles;
 
                 auto isEligible = [&](ObjectGuid const& guid) -> bool
                 {
@@ -541,10 +574,11 @@ public:
 
                     usedGuids.insert(picked);
                     pickedBots.push_back(picked);
+                    pickedClassIds.push_back(slot.classId);
+                    pickedRoles.push_back(slot.role);
                     LOG_INFO("playerbots", "RaidBrowserAutoFill: class={}, guid={}, role={}", slot.className, picked.ToString(), slot.role);
                 }
 
-                // Step 3b+3c: asynchronously add the first 2 picked bots and invite them later.
                 if (player->GetGroup() != nullptr)
                 {
                     LOG_INFO("playerbots", "RaidBrowserAutoFill: skipping auto-add, player already in a group");
@@ -588,6 +622,8 @@ public:
                                 RaidBrowserPendingInvite entry;
                                 entry.botGuids = toAdd;
                                 entry.invited.assign(toAdd.size(), false);
+                                entry.classIds = pickedClassIds;
+                                entry.roles = pickedRoles;
                                 entry.createdAt = time(nullptr);
                                 entry.difficulty = dungeon->difficulty;
                                 entry.difficultySet = false;
@@ -621,7 +657,7 @@ public:
         }
     }
 
-    using PlayerScript::OnPlayerCanUseChat;  // keep the base overloads visible
+    using PlayerScript::OnPlayerCanUseChat;
 
     bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 lang, std::string& msg, Player* receiver) override
     {
@@ -639,9 +675,6 @@ public:
 
         botAI->HandleCommand(type, msg, player);
 
-        // hotfix; otherwise the server will crash when whispering logout
-        // https://github.com/mod-playerbots/mod-playerbots/pull/1838
-        // TODO: find the root cause and solve it. (does not happen in party chat)
         if (msg == "logout")
             return false;
 
@@ -650,7 +683,6 @@ public:
 
     bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 lang, std::string& msg, Group* group) override
     {
-        // Addon traffic (DBM, Carbonite, ...) is no bot command; its text used to trigger item commands like trade.
         if (lang == LANG_ADDON)
             return true;
 
@@ -723,15 +755,12 @@ public:
 
     void OnPlayerGiveXP(Player* player, uint32& amount, Unit* /*victim*/, uint8 /*xpSource*/) override
     {
-        // early return
         if (sPlayerbotAIConfig.RandomBotXPRate == 1.0 || !player)
             return;
 
-        // no XP multiplier, when player is no bot.
         if (!player->GetSession()->IsHeadless() || !sRandomPlayerbotMgr.IsRandomBot(player))
             return;
 
-        // no XP multiplier, when bot is in a group with a real player.
         if (Group* group = player->GetGroup())
         {
             for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
@@ -745,7 +774,6 @@ public:
             }
         }
 
-        // otherwise apply bot XP multiplier.
         amount = static_cast<uint32>(std::round(static_cast<float>(amount) * sPlayerbotAIConfig.RandomBotXPRate));
     }
 };
@@ -808,7 +836,6 @@ public:
         SESSIONHOOK_ON_UPDATE
     }) {}
 
-    // Runs on the world thread for every real session: drains the packet queues of the bots it owns
     void OnSessionUpdate(WorldSession* session, uint32 /*diff*/) override
     {
         if (Player* player = session->GetPlayer())
@@ -824,7 +851,6 @@ public:
         ALLMAPHOOK_CAN_SEND_OBJECT_UPDATES_TO_PLAYER
     }) {}
 
-    // Bots have no client to render object updates; only self bots still need them
     bool CanSendObjectUpdatesToPlayer(Map* /*map*/, Player* player) override
     {
         PlayerbotAI* botAI = PlayerbotsMgr::instance().GetPlayerbotAI(player);
@@ -843,7 +869,6 @@ public:
         GLOBALHOOK_CAN_CREATE_LFG_PROPOSAL
     }) {}
 
-    // Never form a dungeon group made only of bots
     bool CanCreateLfgProposal(lfg::Lfg5Guids const& guids) override
     {
         for (ObjectGuid const& guid : guids.guids)
@@ -869,10 +894,6 @@ public:
 
     void OnBeforeWorldInitialized() override
     {
-        // Before modifying the following messages, please make sure it does not violate the GNU GPLv2
-        // license especially if you are distributing a repack or hosting a public server
-        // e.g. you can replace the URL with your own repository,
-        // but it should be publicly accessible and include all modifications you've made
         LOG_INFO("server.loading", "╔══════════════════════════════════════════════════════════╗");
         LOG_INFO("server.loading", "║                                                          ║");
         LOG_INFO("server.loading", "║              AzerothCore Playerbots Module               ║");
@@ -905,10 +926,10 @@ public:
 
     void OnUpdate(uint32 diff) override
     {
-        PlayerbotHolder::UpdatePendingLogins();  // Headless sessions whose login holder is in flight
-        sRandomPlayerbotMgr.UpdateSessions();  // Per-bot packet queues, world thread only
+        PlayerbotHolder::UpdatePendingLogins();
+        sRandomPlayerbotMgr.UpdateSessions();
         PlayerbotWorldThreadProcessor::instance().Update(diff);
-        sRandomPlayerbotMgr.UpdateAI(diff);  // World thread only
+        sRandomPlayerbotMgr.UpdateAI(diff);
 
         static uint32 raidBrowserPendingTimer = 0;
         raidBrowserPendingTimer += diff;
@@ -954,6 +975,21 @@ public:
 
                     if (invitesThisTick >= 5)
                         break;
+
+                    // Apply premade spec/role from fillraid template (if we know it)
+                    if (i < entry.classIds.size() && i < entry.roles.size())
+                    {
+                        uint8 classId = entry.classIds[i];
+                        std::string const& role = entry.roles[i];
+                        int specNo = SpecNoForClassRole(classId, role);
+                        if (specNo >= 0)
+                        {
+                            PlayerbotFactory::InitTalentsBySpecNo(bot, specNo, true);
+                            LOG_INFO("playerbots", "RaidBrowserAutoFill: applied spec {} to bot {} (class={}, role={})",
+                                     specNo, entry.botGuids[i].ToString(), (uint32)classId, role);
+                        }
+                    }
+
                     LOG_INFO("playerbots", "RaidBrowserAutoFill: bot {} entered world for player {}",
                              entry.botGuids[i].ToString(), player->GetName());
 
@@ -1108,7 +1144,6 @@ public:
         }
     }
 
-    // Runs before the sessions are kicked on server shutdown
     void OnShutdown() override
     {
         LOG_INFO("playerbots", "Logging out all bots...");
@@ -1127,7 +1162,7 @@ public:
         BGStrategyData data;
 
         BattlegroundTypeId bgType = bg->GetBgTypeID();
-        if (bgType == BATTLEGROUND_RB)  // a random-queue game: the rolled map
+        if (bgType == BATTLEGROUND_RB)
             bgType = bg->GetBgTypeID(true);
 
         switch (bgType)
@@ -1158,7 +1193,6 @@ public:
     void OnBattlegroundEnd(Battleground* bg, TeamId /*winnerTeam*/) override { bgStrategies.erase(bg->GetInstanceID()); }
 };
 
-// Workaround for missing InitEnabledHooksIfNeeded for new BattlefieldScript in ScriptMgr
 class PlayerbotsBattlefieldScript : public BattlefieldScript
 {
 public:

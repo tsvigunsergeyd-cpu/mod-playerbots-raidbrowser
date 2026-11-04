@@ -145,6 +145,41 @@ Playerbots.AddClassCommand = 1
 # Default: 0 (always the same character)
 Playerbots.AddClassRandomCharacter = 0
 
+####################################################################################################
+# FILLRAID TEMPLATES
+#
+# Template slot format: Playerbots.FillRaid.<name>.Slot.<n> = <classId>:<role>
+# classId: 1 warrior, 2 paladin, 3 hunter, 4 rogue, 5 priest, 6 dk,
+#          7 shaman, 8 mage, 9 warlock, 11 druid, 0 = any dps filler
+# role: tank / heal / dps
+# n must be contiguous starting from 0; first missing key terminates the list.
+Playerbots.FillRaid.Templates = 25
+
+Playerbots.FillRaid.25.Slot.0 = 2:tank
+Playerbots.FillRaid.25.Slot.1 = 11:tank
+Playerbots.FillRaid.25.Slot.2 = 6:tank
+Playerbots.FillRaid.25.Slot.3 = 2:heal
+Playerbots.FillRaid.25.Slot.4 = 7:heal
+Playerbots.FillRaid.25.Slot.5 = 11:heal
+Playerbots.FillRaid.25.Slot.6 = 5:heal
+Playerbots.FillRaid.25.Slot.7 = 2:heal
+Playerbots.FillRaid.25.Slot.8 = 7:heal
+Playerbots.FillRaid.25.Slot.9 = 8:dps
+Playerbots.FillRaid.25.Slot.10 = 8:dps
+Playerbots.FillRaid.25.Slot.11 = 9:dps
+Playerbots.FillRaid.25.Slot.12 = 9:dps
+Playerbots.FillRaid.25.Slot.13 = 9:dps
+Playerbots.FillRaid.25.Slot.14 = 3:dps
+Playerbots.FillRaid.25.Slot.15 = 3:dps
+Playerbots.FillRaid.25.Slot.16 = 4:dps
+Playerbots.FillRaid.25.Slot.17 = 4:dps
+Playerbots.FillRaid.25.Slot.18 = 6:dps
+Playerbots.FillRaid.25.Slot.19 = 6:dps
+Playerbots.FillRaid.25.Slot.20 = 2:dps
+Playerbots.FillRaid.25.Slot.21 = 7:dps
+Playerbots.FillRaid.25.Slot.22 = 11:dps
+Playerbots.FillRaid.25.Slot.23 = 5:dps
+
 # Bot group invitation permission level (0 = GM only, 1 = accept based on level, 2 = always accept)
 # Default: 1 (accept based on level)
 Playerbots.GroupInvitationPermission = 1
