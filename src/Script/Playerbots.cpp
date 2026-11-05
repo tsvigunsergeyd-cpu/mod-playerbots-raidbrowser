@@ -984,13 +984,16 @@ public:
                 if (now - entry.createdAt > 60)
                 {
                     uint32 dropped = 0;
+                    Group* softDeadlineGroup = player->GetGroup();
                     for (size_t i = entry.botGuids.size(); i-- > 0;)
                     {
-                        if (entry.invited[i] || ObjectAccessor::FindPlayer(entry.botGuids[i]))
+                        bool const inGroup = (softDeadlineGroup != nullptr && softDeadlineGroup->IsMember(entry.botGuids[i]));
+                        if (inGroup)
                             continue;
 
-                        LOG_WARN("playerbots", "RaidBrowserAutoFill: bot {} did not enter the world in 60s, dropped from assembly for player {}",
-                                 entry.botGuids[i].ToString(), player->GetName());
+                        LOG_WARN("playerbots", "RaidBrowserAutoFill: bot {} did not join in 60s (invited={}, inWorld={}), dropped from assembly for player {}",
+                                 entry.botGuids[i].ToString(), static_cast<bool>(entry.invited[i]),
+                                 ObjectAccessor::FindPlayer(entry.botGuids[i]) != nullptr, player->GetName());
                         if (PlayerbotHolder::IsBotLoading(entry.botGuids[i]))
                             PlayerbotHolder::AbandonPendingLogin(entry.botGuids[i]);
                         entry.botGuids.erase(entry.botGuids.begin() + i);
