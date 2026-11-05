@@ -41,6 +41,7 @@
 #include "WorldScript.h"
 #include "cmath"
 #include <algorithm>
+#include <random>
 #include <ctime>
 #include <mutex>
 #include <unordered_map>
@@ -570,13 +571,18 @@ public:
                         continue;
 
                     ObjectGuid picked = ObjectGuid::Empty;
+                    std::vector<ObjectGuid> candidates;
+                    candidates.reserve(cacheIt->second.size());
                     for (ObjectGuid const& guid : cacheIt->second)
                     {
                         if (isEligible(guid))
-                        {
-                            picked = guid;
-                            break;
-                        }
+                            candidates.push_back(guid);
+                    }
+                    if (!candidates.empty())
+                    {
+                        static thread_local std::mt19937 rng(std::random_device{}());
+                        std::shuffle(candidates.begin(), candidates.end(), rng);
+                        picked = candidates.front();
                     }
 
                     if (picked.IsEmpty())
