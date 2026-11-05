@@ -69,7 +69,9 @@ protected:
     virtual void OnBotLoginInternal(Player* const bot) = 0;
 
     PlayerBotMap playerBots;
+public:
     static void AbandonPendingLogin(ObjectGuid guid);
+protected:
     static std::unordered_map<ObjectGuid, PendingBotLogin> botLoading;
 };
 

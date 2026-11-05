@@ -47,8 +47,10 @@
 
 // Maps (classId, role) -> premade spec number (Playerbots.PremadeSpecName.<class>.<specNo>).
 // -1 means unknown combination.
-static int SpecNoForClassRole(uint8 classId, std::string const& role)
+static int SpecNoForClassRole(uint8 classId, std::string const& roleIn)
 {
+    // Built-in rosters say "healer", config templates say "heal".
+    std::string const role = (roleIn == "healer") ? "heal" : roleIn;
     static std::map<std::pair<uint8, std::string>, int> const table = {
         {{1,  "tank"}, 2}, {{1,  "dps"}, 0},
         {{2,  "tank"}, 1}, {{2,  "heal"}, 0}, {{2,  "dps"}, 2},
@@ -62,6 +64,8 @@ static int SpecNoForClassRole(uint8 classId, std::string const& role)
         {{11, "tank"}, 1}, {{11, "heal"}, 2}, {{11, "dps"}, 3},
     };
     auto it = table.find({classId, role});
+    if (it == table.end())
+        LOG_WARN("playerbots", "RaidBrowserAutoFill: no spec mapping for class {} role '{}'", (uint32)classId, role);
     return it != table.end() ? it->second : -1;
 }
 
@@ -956,12 +960,52 @@ public:
                 {
                     LOG_WARN("playerbots", "RaidBrowserAutoFill: pending invites for player {} expired",
                              player->GetName());
-                    auto& added = raidBrowserAddedBots[playerGuid];
+                    // The assembly failed: do not leave its bots in the world.
+                    auto& logoutQ = raidBrowserLogoutQueue[playerGuid];
                     for (ObjectGuid& g : entry.botGuids)
-                        added.push_back(std::move(g));
+                    {
+                        if (PlayerbotHolder::IsBotLoading(g))
+                            PlayerbotHolder::AbandonPendingLogin(g);
+                        logoutQ.push_back(g);
+                    }
                     entry.botGuids.clear();
                     toErase.push_back(playerGuid);
                     continue;
+                }
+
+                // Soft deadline: a bot that never entered the world (login refused, bot cap,
+                // failed load) must not block the whole assembly.
+                if (now - entry.createdAt > 60)
+                {
+                    uint32 dropped = 0;
+                    for (size_t i = entry.botGuids.size(); i-- > 0;)
+                    {
+                        if (entry.invited[i] || ObjectAccessor::FindPlayer(entry.botGuids[i]))
+                            continue;
+
+                        LOG_WARN("playerbots", "RaidBrowserAutoFill: bot {} did not enter the world in 60s, dropped from assembly for player {}",
+                                 entry.botGuids[i].ToString(), player->GetName());
+                        if (PlayerbotHolder::IsBotLoading(entry.botGuids[i]))
+                            PlayerbotHolder::AbandonPendingLogin(entry.botGuids[i]);
+                        entry.botGuids.erase(entry.botGuids.begin() + i);
+                        entry.invited.erase(entry.invited.begin() + i);
+                        if (i < entry.classIds.size())
+                            entry.classIds.erase(entry.classIds.begin() + i);
+                        if (i < entry.roles.size())
+                            entry.roles.erase(entry.roles.begin() + i);
+                        ++dropped;
+                    }
+
+                    if (dropped > 0 && player->GetSession() != nullptr)
+                        ChatHandler(player->GetSession()).PSendSysMessage("Raid browser: {} bot(s) could not join, continuing with the rest", dropped);
+
+                    if (entry.botGuids.empty())
+                    {
+                        LOG_WARN("playerbots", "RaidBrowserAutoFill: no bots left for player {}, assembly cancelled",
+                                 player->GetName());
+                        toErase.push_back(playerGuid);
+                        continue;
+                    }
                 }
 
                 for (size_t i = 0; i < entry.botGuids.size(); ++i)
