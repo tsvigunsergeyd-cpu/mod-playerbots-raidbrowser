@@ -147,6 +147,8 @@ static void MoveRaidBrowserBotsToLogoutQueue(ObjectGuid guid)
     }
     if (!guids.empty())
     {
+        LOG_INFO("playerbots", "RaidBrowserDiag: owner {} left or disbanded, queued {} bots for logout",
+                 guid.ToString(), guids.size());
         auto& q = raidBrowserLogoutQueue[guid];
         q.insert(q.end(), guids.begin(), guids.end());
         return;
@@ -162,6 +164,8 @@ static void MoveRaidBrowserBotsToLogoutQueue(ObjectGuid guid)
         if (botIt != botGuids.end())
         {
             botGuids.erase(botIt);
+            LOG_INFO("playerbots", "RaidBrowserDiag: added bot {} removed from group, queued for logout (owner {})",
+                     guid.ToString(), ownerGuid.ToString());
             auto& q = raidBrowserLogoutQueue[ownerGuid];
             q.push_back(guid);
             if (botGuids.empty())
@@ -188,6 +192,8 @@ static void MoveRaidBrowserBotsToLogoutQueue(ObjectGuid guid)
                 entry.classIds.erase(entry.classIds.begin() + idx);
             if (idx < entry.roles.size())
                 entry.roles.erase(entry.roles.begin() + idx);
+            LOG_INFO("playerbots", "RaidBrowserDiag: pending bot {} removed from group, queued for logout (owner {})",
+                     guid.ToString(), ownerGuid.ToString());
             auto& q = raidBrowserLogoutQueue[ownerGuid];
             q.push_back(guid);
             break;
@@ -1263,8 +1269,10 @@ public:
     PlayerbotsGroupScript() : GroupScript("PlayerbotsGroupScript",
         { GROUPHOOK_ON_REMOVE_MEMBER, GROUPHOOK_ON_DISBAND }) {}
 
-    void OnRemoveMember(Group* /*group*/, ObjectGuid guid, RemoveMethod /*method*/, ObjectGuid /*kicker*/, char const* /*reason*/) override
+    void OnRemoveMember(Group* /*group*/, ObjectGuid guid, RemoveMethod method, ObjectGuid kicker, char const* reason) override
     {
+        LOG_DEBUG("playerbots", "RaidBrowserDiag: OnRemoveMember guid {} method {} kicker {} reason '{}'",
+                  guid.ToString(), static_cast<uint32>(method), kicker.ToString(), reason ? reason : "");
         MoveRaidBrowserBotsToLogoutQueue(guid);
     }
 
