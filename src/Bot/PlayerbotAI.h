@@ -558,6 +558,11 @@ public:
     bool IsRaidBrowserBot() const { return !raidOwnerGuid.IsEmpty(); }
     ObjectGuid GetRaidBrowserOwner() const { return raidOwnerGuid; }
     void SetRaidBrowserOwner(ObjectGuid guid) { raidOwnerGuid = guid; }
+    // 9c.2: armed = bot has been seen inside the raid zone (assembly finished)
+    bool IsRaidZoneArmed() const { return raidZoneArmed; }
+    void SetRaidZoneArmed(bool value) { raidZoneArmed = value; }
+    static bool IsInRaidBrowserZone(Player* player);
+    bool raidZoneArmed = false;
     Player* FindNewMaster();
 
     // Get the group leader or the master of the bot.

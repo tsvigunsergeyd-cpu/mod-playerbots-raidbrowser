@@ -626,6 +626,16 @@ void PlayerbotAI::UpdateAIInternal([[maybe_unused]] uint32 elapsed, bool minimal
         pmo->finish();
 }
 
+bool PlayerbotAI::IsInRaidBrowserZone(Player* player)
+{
+    if (!player)
+        return false;
+    uint32 const mapId = player->GetMapId();
+    if (mapId == 631)
+        return true;
+    return mapId == 571 && player->GetExactDist2d(5873.82f, 2110.98f) <= 150.0f;
+}
+
 void PlayerbotAI::HandleCommands()
 {
     ExternalEventHelper helper(aiObjectContext);
@@ -1077,6 +1087,26 @@ void PlayerbotAI::HandleCommand(uint32 type, std::string const text, Player* fro
     filtered = chatFilter.Filter(trim(filtered));
     if (filtered.empty())
         return;
+
+    // 9c.1: raid-browser bots ignore service/cast words from non-GM humans
+    if (IsRaidBrowserBot() && fromPlayer && fromPlayer != bot && !GET_PLAYERBOT_AI(fromPlayer) &&
+        !fromPlayer->CanBeGameMaster())
+    {
+        std::string head = filtered.substr(0, filtered.find(' '));
+        for (char& c : head)
+            c = (char)std::tolower((unsigned char)c);
+
+        static char const* const kDeniedWords[] = {"debug", "d", "do", "queue", "reset", "logout", "cast", "castnc"};
+        for (char const* w : kDeniedWords)
+        {
+            if (head == w)
+            {
+                LOG_DEBUG("playerbots", "9c gate: raid bot {} ignored '{}' from {}", bot->GetName(), filtered,
+                          fromPlayer->GetName());
+                return;
+            }
+        }
+    }
 
     if (filtered.substr(0, 6) == "debug ")
     {

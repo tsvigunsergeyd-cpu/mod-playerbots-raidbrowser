@@ -947,6 +947,54 @@ public:
         PlayerbotWorldThreadProcessor::instance().Update(diff);
         sRandomPlayerbotMgr.UpdateAI(diff);
 
+        // 9c.2: raid-browser bots that left the raid zone are reset and returned to the gathering point
+        {
+            static uint32 raidZoneTimer = 0;
+            raidZoneTimer += diff;
+            if (raidZoneTimer >= 1000)
+            {
+                raidZoneTimer = 0;
+                std::vector<ObjectGuid> zoneBots;
+                {
+                    std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
+                    for (auto const& entry : raidBrowserAddedBots)
+                        zoneBots.insert(zoneBots.end(), entry.second.begin(), entry.second.end());
+                }
+                for (ObjectGuid const& zoneBotGuid : zoneBots)
+                {
+                    Player* zoneBot = ObjectAccessor::FindPlayer(zoneBotGuid);
+                    if (!zoneBot || !zoneBot->IsInWorld() || zoneBot->IsBeingTeleported())
+                        continue;
+                    PlayerbotAI* zoneAI = GET_PLAYERBOT_AI(zoneBot);
+                    if (!zoneAI || !zoneAI->IsRaidBrowserBot())
+                        continue;
+                    if (PlayerbotAI::IsInRaidBrowserZone(zoneBot))
+                    {
+                        zoneAI->SetRaidZoneArmed(true);
+                        continue;
+                    }
+                    if (!zoneAI->IsRaidZoneArmed())
+                        continue;
+                    zoneAI->SetRaidZoneArmed(false);
+                    zoneBot->GetMotionMaster()->Clear(true);
+                    zoneBot->StopMoving();
+                    zoneAI->ChangeStrategy("+stay,-follow,-passive,-move from group", BOT_STATE_NON_COMBAT);
+                    zoneAI->ChangeStrategy("+stay,-follow,-passive,-move from group", BOT_STATE_COMBAT);
+                    zoneBot->TeleportTo(571, 5873.82f, 2110.98f, 636.011f, 3.5523f);
+                    {
+                        Player* zoneOwner = ObjectAccessor::FindPlayer(zoneAI->GetRaidBrowserOwner());
+                        LOG_DEBUG("playerbots",
+                                 "9c.2: raid bot {} left raid zone: map={} x={:.1f} y={:.1f} z={:.1f} dist={:.1f} "
+                                 "alive={} ownerMap={}",
+                                 zoneBot->GetName(), zoneBot->GetMapId(), zoneBot->GetPositionX(),
+                                 zoneBot->GetPositionY(), zoneBot->GetPositionZ(),
+                                 zoneBot->GetExactDist2d(5873.82f, 2110.98f), zoneBot->IsAlive(),
+                                 zoneOwner ? zoneOwner->GetMapId() : 0u);
+                    }
+                }
+            }
+        }
+
         static uint32 raidBrowserPendingTimer = 0;
         raidBrowserPendingTimer += diff;
         if (raidBrowserPendingTimer < 1000)
