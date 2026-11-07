@@ -137,7 +137,7 @@ static void AbandonIfLoading(ObjectGuid const& g, char const* why)
     }
 }
 
-static void MoveRaidBrowserBotsToLogoutQueue(ObjectGuid guid)
+static void MoveRaidBrowserBotsToLogoutQueue(ObjectGuid guid, Group* group = nullptr)
 {
     std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
 
@@ -197,6 +197,17 @@ static void MoveRaidBrowserBotsToLogoutQueue(ObjectGuid guid)
         auto botIt = std::find(entry.botGuids.begin(), entry.botGuids.end(), guid);
         if (botIt != entry.botGuids.end())
         {
+            if (group != nullptr)
+            {
+                // A pending bot leaving some OTHER (stale) group at login is not a kick from our assembly
+                Player* owner = ObjectAccessor::FindPlayer(ownerGuid);
+                if (owner == nullptr || owner->GetGroup() != group)
+                {
+                    LOG_INFO("playerbots", "RaidBrowserDiag: pending bot {} left a foreign group, kept in assembly (owner {})",
+                             guid.ToString(), ownerGuid.ToString());
+                    break;
+                }
+            }
             size_t idx = static_cast<size_t>(botIt - entry.botGuids.begin());
             entry.botGuids.erase(botIt);
             if (idx < entry.invited.size())
@@ -1396,11 +1407,11 @@ public:
     PlayerbotsGroupScript() : GroupScript("PlayerbotsGroupScript",
         { GROUPHOOK_ON_REMOVE_MEMBER, GROUPHOOK_ON_DISBAND }) {}
 
-    void OnRemoveMember(Group* /*group*/, ObjectGuid guid, RemoveMethod method, ObjectGuid kicker, char const* reason) override
+    void OnRemoveMember(Group* group, ObjectGuid guid, RemoveMethod method, ObjectGuid kicker, char const* reason) override
     {
         LOG_DEBUG("playerbots", "RaidBrowserDiag: OnRemoveMember guid {} method {} kicker {} reason '{}'",
                   guid.ToString(), static_cast<uint32>(method), kicker.ToString(), reason ? reason : "");
-        MoveRaidBrowserBotsToLogoutQueue(guid);
+        MoveRaidBrowserBotsToLogoutQueue(guid, group);
     }
 
     void OnDisband(Group* group) override
