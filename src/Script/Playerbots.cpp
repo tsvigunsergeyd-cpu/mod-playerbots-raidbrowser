@@ -467,6 +467,27 @@ public:
                     }
                 }
 
+                if (Group* botCheckGroup = player->GetGroup())
+                {
+                    uint32 foreignBots = 0;
+                    for (Group::member_citerator itr = botCheckGroup->GetMemberSlots().begin();
+                         itr != botCheckGroup->GetMemberSlots().end(); ++itr)
+                    {
+                        Player* member = ObjectAccessor::FindPlayer(itr->guid);
+                        if (!member || member == player)
+                            continue;
+                        if (PlayerbotsMgr::instance().GetPlayerbotAI(member) != nullptr)
+                            ++foreignBots;
+                    }
+                    if (foreignBots > 0)
+                    {
+                        ChatHandler(player->GetSession()).PSendSysMessage("Raid browser assembly skipped: your group already has bots, remove them first");
+                        LOG_INFO("playerbots", "RaidBrowserAutoFill: assembly refused for player {} ({}): group has {} foreign bot(s)",
+                                 player->GetName(), player->GetGUID().ToString(), foreignBots);
+                        return false;
+                    }
+                }
+
                 bool const is25 = (dungeon->id == 280);
 
                 uint8 teamId = player->GetTeamId(true);
