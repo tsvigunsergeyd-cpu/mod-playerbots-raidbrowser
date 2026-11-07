@@ -1466,7 +1466,7 @@ public:
 
         Group::MemberSlotList const& slots = group->GetMemberSlots();
         for (Group::member_citerator itr = slots.begin(); itr != slots.end(); ++itr)
-            MoveRaidBrowserBotsToLogoutQueue(itr->guid);
+            MoveRaidBrowserBotsToLogoutQueue(itr->guid, group);
     }
 };
 
