@@ -438,6 +438,24 @@ public:
                     return false;
                 }
 
+                if (player->GetGroup() != nullptr)
+                {
+                    bool hasRaidBots = false;
+                    {
+                        std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
+                        auto itA = raidBrowserAddedBots.find(player->GetGUID());
+                        hasRaidBots = (itA != raidBrowserAddedBots.end() && !itA->second.empty()) ||
+                                      raidBrowserPending.find(player->GetGUID()) != raidBrowserPending.end();
+                    }
+                    if (hasRaidBots)
+                    {
+                        ChatHandler(player->GetSession()).PSendSysMessage("Raid browser assembly skipped: you are already in a raid browser group");
+                        LOG_INFO("playerbots", "RaidBrowserAutoFill: assembly refused for player {} ({}): already in a raid browser group",
+                                 player->GetName(), player->GetGUID().ToString());
+                        return false;
+                    }
+                }
+
                 bool const is25 = (dungeon->id == 280);
 
                 uint8 teamId = player->GetTeamId(true);
