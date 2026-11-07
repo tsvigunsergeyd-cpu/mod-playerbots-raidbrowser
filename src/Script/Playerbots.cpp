@@ -541,9 +541,19 @@ public:
                 std::vector<uint8> pickedClassIds;
                 std::vector<std::string> pickedRoles;
 
+                // Bots already reserved by any pending assembly (including ones that failed to start loading)
+                std::vector<ObjectGuid> busyGuids;
+                {
+                    std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
+                    for (auto const& [ownerGuid, pendingEntry] : raidBrowserPending)
+                        busyGuids.insert(busyGuids.end(), pendingEntry.botGuids.begin(), pendingEntry.botGuids.end());
+                }
+
                 auto isEligible = [&](ObjectGuid const& guid) -> bool
                 {
                     if (usedGuids.find(guid) != usedGuids.end())
+                        return false;
+                    if (std::find(busyGuids.begin(), busyGuids.end(), guid) != busyGuids.end())
                         return false;
                     if (PlayerbotHolder::IsBotLoading(guid))
                         return false;
