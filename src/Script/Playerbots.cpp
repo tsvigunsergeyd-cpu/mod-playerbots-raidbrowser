@@ -1076,6 +1076,8 @@ public:
                                  ObjectAccessor::FindPlayer(entry.botGuids[i]) != nullptr, player->GetName());
                         if (PlayerbotHolder::IsBotLoading(entry.botGuids[i]))
                             PlayerbotHolder::AbandonPendingLogin(entry.botGuids[i]);
+                        // Dropped bot may already be in the world: do not leave it orphaned
+                        raidBrowserLogoutQueue[playerGuid].push_back(entry.botGuids[i]);
                         entry.botGuids.erase(entry.botGuids.begin() + i);
                         entry.invited.erase(entry.invited.begin() + i);
                         if (i < entry.classIds.size())
