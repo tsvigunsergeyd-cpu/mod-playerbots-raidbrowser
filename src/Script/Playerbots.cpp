@@ -501,10 +501,9 @@ public:
                 };
 
                 std::vector<RaidRosterSlot> roster;
-                if (is25)
                 {
                     auto const& templates = sPlayerbotAIConfig.FillRaidTemplates;
-                    auto tmplIt = templates.find("25");
+                    auto tmplIt = templates.find(is25 ? "25" : "10");
                     if (tmplIt != templates.end() && !tmplIt->second.empty())
                     {
                         static std::map<uint8, char const*> const classNames = {
@@ -550,7 +549,7 @@ public:
                             roster.push_back({cls, name, slot.role.c_str()});
                         }
                     }
-                    else
+                    else if (is25)
                     {
                         roster.push_back({CLASS_WARRIOR, "warrior", "tank"});
                         roster.push_back({CLASS_PALADIN, "paladin", "tank"});
@@ -572,18 +571,18 @@ public:
                         roster.push_back({CLASS_PALADIN, "paladin", "dps"});
                         roster.push_back({CLASS_SHAMAN, "shaman", "dps"});
                     }
-                }
-                else
-                {
-                    roster.push_back({CLASS_WARRIOR, "warrior", "tank"});
-                    roster.push_back({CLASS_PALADIN, "paladin", "healer"});
-                    roster.push_back({CLASS_DRUID, "druid", "healer"});
-                    roster.push_back({CLASS_PRIEST, "priest", "healer"});
-                    roster.push_back({CLASS_SHAMAN, "shaman", "dps"});
-                    roster.push_back({CLASS_MAGE, "mage", "dps"});
-                    roster.push_back({CLASS_WARLOCK, "warlock", "dps"});
-                    roster.push_back({CLASS_HUNTER, "hunter", "dps"});
-                    roster.push_back({CLASS_DEATH_KNIGHT, "death knight", "tank"});
+                    else
+                    {
+                        roster.push_back({CLASS_WARRIOR, "warrior", "tank"});
+                        roster.push_back({CLASS_PALADIN, "paladin", "healer"});
+                        roster.push_back({CLASS_DRUID, "druid", "healer"});
+                        roster.push_back({CLASS_PRIEST, "priest", "healer"});
+                        roster.push_back({CLASS_SHAMAN, "shaman", "dps"});
+                        roster.push_back({CLASS_MAGE, "mage", "dps"});
+                        roster.push_back({CLASS_WARLOCK, "warlock", "dps"});
+                        roster.push_back({CLASS_HUNTER, "hunter", "dps"});
+                        roster.push_back({CLASS_DEATH_KNIGHT, "death knight", "tank"});
+                    }
                 }
 
                 {

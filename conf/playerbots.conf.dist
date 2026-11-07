@@ -153,7 +153,7 @@ Playerbots.AddClassRandomCharacter = 0
 #          7 shaman, 8 mage, 9 warlock, 11 druid, 0 = any dps filler
 # role: tank / heal / dps
 # n must be contiguous starting from 0; first missing key terminates the list.
-Playerbots.FillRaid.Templates = 25
+Playerbots.FillRaid.Templates = 25,10
 
 Playerbots.FillRaid.25.Slot.0 = 2:tank
 Playerbots.FillRaid.25.Slot.1 = 11:tank
@@ -179,6 +179,17 @@ Playerbots.FillRaid.25.Slot.20 = 2:dps
 Playerbots.FillRaid.25.Slot.21 = 7:dps
 Playerbots.FillRaid.25.Slot.22 = 11:dps
 Playerbots.FillRaid.25.Slot.23 = 5:dps
+
+# 10-man template: 9 bot slots (the 10th place is the leader)
+Playerbots.FillRaid.10.Slot.0 = 2:tank
+Playerbots.FillRaid.10.Slot.1 = 11:tank
+Playerbots.FillRaid.10.Slot.2 = 2:heal
+Playerbots.FillRaid.10.Slot.3 = 5:heal
+Playerbots.FillRaid.10.Slot.4 = 11:heal
+Playerbots.FillRaid.10.Slot.5 = 8:dps
+Playerbots.FillRaid.10.Slot.6 = 9:dps
+Playerbots.FillRaid.10.Slot.7 = 3:dps
+Playerbots.FillRaid.10.Slot.8 = 4:dps
 
 # Bot group invitation permission level (0 = GM only, 1 = accept based on level, 2 = always accept)
 # Default: 1 (accept based on level)
