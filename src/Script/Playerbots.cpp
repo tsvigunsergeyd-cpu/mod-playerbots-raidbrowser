@@ -128,6 +128,15 @@ static std::unordered_map<ObjectGuid, RaidBrowserPendingInvite> raidBrowserPendi
 static std::unordered_map<ObjectGuid, std::vector<ObjectGuid>> raidBrowserAddedBots;
 static std::unordered_map<ObjectGuid, std::vector<ObjectGuid>> raidBrowserLogoutQueue;
 
+static void AbandonIfLoading(ObjectGuid const& g, char const* why)
+{
+    if (PlayerbotHolder::IsBotLoading(g))
+    {
+        PlayerbotHolder::AbandonPendingLogin(g);
+        LOG_INFO("playerbots", "RaidBrowserDiag: bot {} still loading, login abandoned ({})", g.ToString(), why);
+    }
+}
+
 static void MoveRaidBrowserBotsToLogoutQueue(ObjectGuid guid)
 {
     std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
@@ -150,6 +159,8 @@ static void MoveRaidBrowserBotsToLogoutQueue(ObjectGuid guid)
     {
         LOG_INFO("playerbots", "RaidBrowserDiag: owner {} left or disbanded, queued {} bots for logout",
                  guid.ToString(), guids.size());
+        for (ObjectGuid const& g : guids)
+            AbandonIfLoading(g, "owner left or disbanded");
         auto& q = raidBrowserLogoutQueue[guid];
         q.insert(q.end(), guids.begin(), guids.end());
         return;
@@ -167,6 +178,7 @@ static void MoveRaidBrowserBotsToLogoutQueue(ObjectGuid guid)
             botGuids.erase(botIt);
             LOG_INFO("playerbots", "RaidBrowserDiag: added bot {} removed from group, queued for logout (owner {})",
                      guid.ToString(), ownerGuid.ToString());
+            AbandonIfLoading(guid, "added bot removed from group");
             auto& q = raidBrowserLogoutQueue[ownerGuid];
             q.push_back(guid);
             if (botGuids.empty())
@@ -195,6 +207,7 @@ static void MoveRaidBrowserBotsToLogoutQueue(ObjectGuid guid)
                 entry.roles.erase(entry.roles.begin() + idx);
             LOG_INFO("playerbots", "RaidBrowserDiag: pending bot {} removed from group, queued for logout (owner {})",
                      guid.ToString(), ownerGuid.ToString());
+            AbandonIfLoading(guid, "pending bot removed from group");
             auto& q = raidBrowserLogoutQueue[ownerGuid];
             q.push_back(guid);
             break;
@@ -346,9 +359,22 @@ public:
     {
         {
             std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
-            raidBrowserPending.erase(player->GetGUID());
-            raidBrowserAddedBots.erase(player->GetGUID());
-            raidBrowserLogoutQueue.erase(player->GetGUID());
+            ObjectGuid const ownerGuid = player->GetGUID();
+            auto itP = raidBrowserPending.find(ownerGuid);
+            if (itP != raidBrowserPending.end())
+                for (ObjectGuid const& g : itP->second.botGuids)
+                    AbandonIfLoading(g, "owner logout, pending");
+            auto itA = raidBrowserAddedBots.find(ownerGuid);
+            if (itA != raidBrowserAddedBots.end())
+                for (ObjectGuid const& g : itA->second)
+                    AbandonIfLoading(g, "owner logout, added");
+            auto itQ = raidBrowserLogoutQueue.find(ownerGuid);
+            if (itQ != raidBrowserLogoutQueue.end())
+                for (ObjectGuid const& g : itQ->second)
+                    AbandonIfLoading(g, "owner logout, queued");
+            raidBrowserPending.erase(ownerGuid);
+            raidBrowserAddedBots.erase(ownerGuid);
+            raidBrowserLogoutQueue.erase(ownerGuid);
         }
 
         if (PlayerbotMgr* playerbotMgr = GET_PLAYERBOT_MGR(player))
