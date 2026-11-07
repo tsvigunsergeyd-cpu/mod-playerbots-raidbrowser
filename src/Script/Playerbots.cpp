@@ -565,6 +565,27 @@ public:
                     roster.push_back({CLASS_DEATH_KNIGHT, "death knight", "tank"});
                 }
 
+                {
+                    // Cap the roster by the free places in the owner's group
+                    Group* capGroup = player->GetGroup();
+                    uint32 const raidSize = is25 ? 25 : 10;
+                    uint32 const occupied = capGroup ? capGroup->GetMembersCount() : 1;
+                    uint32 const maxBots = raidSize > occupied ? raidSize - occupied : 0;
+                    if (maxBots == 0)
+                    {
+                        ChatHandler(player->GetSession()).PSendSysMessage("Raid browser assembly skipped: your group is already full");
+                        LOG_INFO("playerbots", "RaidBrowserAutoFill: assembly refused for player {}: group already full ({}/{})",
+                                 player->GetName(), occupied, raidSize);
+                        return false;
+                    }
+                    if (roster.size() > maxBots)
+                    {
+                        LOG_INFO("playerbots", "RaidBrowserAutoFill: roster trimmed {} -> {} (group occupies {}/{})",
+                                 roster.size(), maxBots, occupied, raidSize);
+                        roster.erase(roster.begin() + maxBots, roster.end());
+                    }
+                }
+
                 std::unordered_set<ObjectGuid> usedGuids;
                 std::vector<ObjectGuid> pickedBots;
                 std::vector<uint8> pickedClassIds;
@@ -660,9 +681,13 @@ public:
                     LOG_INFO("playerbots", "RaidBrowserAutoFill: class={}, guid={}, role={}", slot.className, picked.ToString(), slot.role);
                 }
 
-                if (player->GetGroup() != nullptr)
+                Group* fillGroup = player->GetGroup();
+                bool const canFillGroup = (fillGroup == nullptr) ||
+                    (fillGroup->GetLeaderGUID() == player->GetGUID() && !fillGroup->isLFGGroup() &&
+                     !fillGroup->isBGGroup() && !fillGroup->isBFGroup());
+                if (!canFillGroup)
                 {
-                    LOG_INFO("playerbots", "RaidBrowserAutoFill: skipping auto-add, player already in a group");
+                    LOG_INFO("playerbots", "RaidBrowserAutoFill: skipping auto-add, player is in a group and not its leader (or LFG/BG group)");
                 }
                 else
                 {
