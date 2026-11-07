@@ -1038,6 +1038,11 @@ public:
                 Player* player = ObjectAccessor::FindPlayer(playerGuid);
                 if (!player)
                 {
+                    // Owner connected but not in the world (map change / teleport): wait, keep the assembly
+                    if (ObjectAccessor::FindConnectedPlayer(playerGuid) != nullptr && now - entry.createdAt <= 120)
+                        continue;
+                    for (ObjectGuid const& g : entry.botGuids)
+                        AbandonIfLoading(g, "owner not in world");
                     toErase.push_back(playerGuid);
                     continue;
                 }
@@ -1221,7 +1226,16 @@ public:
             {
                 Player* player = ObjectAccessor::FindPlayer(playerGuid);
                 if (player == nullptr)
+                {
+                    // Owner between maps: keep the bots queued for the next tick
+                    if (ObjectAccessor::FindConnectedPlayer(playerGuid) != nullptr)
+                    {
+                        std::lock_guard<std::mutex> lock(raidBrowserPendingMutex);
+                        auto& q = raidBrowserLogoutQueue[playerGuid];
+                        q.insert(q.end(), botGuids.begin(), botGuids.end());
+                    }
                     continue;
+                }
 
                 PlayerbotMgr* playerbotMgr = GET_PLAYERBOT_MGR(player);
                 if (playerbotMgr == nullptr)
