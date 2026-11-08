@@ -1495,32 +1495,45 @@ void PlayerbotFactory::InitPetTalents()
 
 void PlayerbotFactory::PrepareBotForContent(Player* bot, int specNo, bool strip, bool consumables, bool pet)
 {
-    // strip old gear first so InitEquipment re-gears from a clean sheet
+    LOG_INFO("playerbots", "PrepareBotForContent: bot={} specNo={} strip={} consumables={} pet={}",
+             bot->GetName(), specNo, strip, consumables, pet);
+
     if (strip)
         DestroyEquippedGear(bot);
 
-    // force role spec (reset=true), then re-gear/glyph/enchant for it
     if (specNo >= 0)
         InitTalentsBySpecNo(bot, specNo, true);
+    LOG_INFO("playerbots", "PrepareBotForContent: {} talents done (specNo={})", bot->GetName(), specNo);
 
     InitEquipment(false, true);
-    InitGlyphs(false);
-    ApplyEnchantAndGemsNew();
+    LOG_INFO("playerbots", "PrepareBotForContent: {} gear done", bot->GetName());
 
-    // ammo LAST: InitEquipment may have swapped the ranged weapon
+    InitGlyphs(false);
+    LOG_INFO("playerbots", "PrepareBotForContent: {} glyphs done", bot->GetName());
+
+    ApplyEnchantAndGemsNew();
+    LOG_INFO("playerbots", "PrepareBotForContent: {} enchants/gems done", bot->GetName());
+
     InitAmmo();
+    LOG_INFO("playerbots", "PrepareBotForContent: {} ammo done", bot->GetName());
 
     if (pet)
     {
         InitPet();
         InitPetTalents();
+        LOG_INFO("playerbots", "PrepareBotForContent: {} pet done", bot->GetName());
     }
 
     if (consumables)
+    {
         InitConsumables();
+        LOG_INFO("playerbots", "PrepareBotForContent: {} consumables done", bot->GetName());
+    }
 
     if (PlayerbotAI* ai = GET_PLAYERBOT_AI(bot))
         ai->ResetStrategies();
+
+    LOG_INFO("playerbots", "PrepareBotForContent: {} ALL DONE", bot->GetName());
 }
 
 void PlayerbotFactory::InitPet()
