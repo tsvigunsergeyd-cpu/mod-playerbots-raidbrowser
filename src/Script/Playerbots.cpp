@@ -1208,20 +1208,14 @@ public:
                         int specNo = SpecNoForClassRole(classId, role);
                         if (specNo >= 0)
                         {
-                            PlayerbotFactory factory(bot, bot->GetLevel());
+                            PlayerbotFactory factory(bot, bot->GetLevel(), /*quality*/ 5, /*gearScoreLimit*/ 0);
 
                             // 1) Full cycle: skills, spells, gear, gems, unbind, attunements
                             factory.Randomize(false);
 
-                            // 2) Our spec OVER the random one (Randomize sets a random spec)
-                            PlayerbotFactory::InitTalentsBySpecNo(bot, specNo, true);
-
-                            // 3) Re-gear for OUR spec (Randomize geared for the random spec)
-                            factory.InitEquipment(false);
-                            factory.ApplyEnchantAndGemsNew(true);
-
-                            // 4) Consumables (food, flasks, potions)
-                            factory.InitConsumables();
+                            // 2) Full role prep on top: strip old gear, force spec, re-gear,
+                            //    glyphs, enchants, ammo, pet, consumables.
+                            factory.PrepareBotForContent(bot, specNo, /*strip*/ true, /*consumables*/ true, /*pet*/ true);
 
                             LOG_INFO("playerbots", "RaidBrowserAutoFill: applied full prep (spec {} + gear + gems + skills + unbind) to bot {} (class={}, role={})",
                                      specNo, entry.botGuids[i].ToString(), (uint32)classId, role);
