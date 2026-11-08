@@ -79,8 +79,10 @@ public:
     void InitSpecialSpells();
     void InitEquipment(bool incremental, bool second_chance = false);
     void InitPet();
-    void PrepareBotForContent(Player* bot, int specNo, bool strip, bool consumables, bool pet);
-    static void LogPrepReport(Player* bot, int specNo, uint32 prepMs);
+    void PrepareBotForContent(Player* bot, int specNo, bool strip, bool consumables, bool pet,
+                              uint16 bisIlvl = 0, bool tankRole = false);
+    static bool ApplyBisGear(Player* bot, uint16 ilvl, bool tank, std::string& outState);
+    static void LogPrepReport(Player* bot, int specNo, uint32 prepMs, std::string const& bisState);
     void InitAmmo();
     static uint32 CalcMixedGearScore(uint32 gs, uint32 quality);
     static void DestroyEquippedGear(Player* bot);

@@ -5,6 +5,8 @@
  */
 
 #include "PlayerbotFactory.h"
+#include "BisListMgr.h"
+#include <set>
 #include "PlayerbotsDatabase.h"
 #include "AccountMgr.h"
 #include "AiFactory.h"
@@ -1493,7 +1495,8 @@ void PlayerbotFactory::InitPetTalents()
     bot->SendTalentsInfoData(true);
 }
 
-void PlayerbotFactory::PrepareBotForContent(Player* bot, int specNo, bool strip, bool consumables, bool pet)
+void PlayerbotFactory::PrepareBotForContent(Player* bot, int specNo, bool strip, bool consumables, bool pet,
+                                            uint16 bisIlvl, bool tankRole)
 {
     uint32 const startMs = getMSTime();
 
@@ -1505,7 +1508,10 @@ void PlayerbotFactory::PrepareBotForContent(Player* bot, int specNo, bool strip,
     if (specNo >= 0)
         InitTalentsBySpecNo(bot, specNo, true);
 
+    std::string bisState = "off";
     InitEquipment(false, true);
+    if (bisIlvl)
+        ApplyBisGear(bot, bisIlvl, tankRole, bisState);
     InitGlyphs(false);
 
     if (bot->GetLevel() >= sPlayerbotAIConfig.MinEnchantingBotLevel)
@@ -1525,10 +1531,123 @@ void PlayerbotFactory::PrepareBotForContent(Player* bot, int specNo, bool strip,
     if (PlayerbotAI* ai = GET_PLAYERBOT_AI(bot))
         ai->ResetStrategies();
 
-    LogPrepReport(bot, specNo, GetMSTimeDiffToNow(startMs));
+    LogPrepReport(bot, specNo, GetMSTimeDiffToNow(startMs), bisState);
 }
 
-void PlayerbotFactory::LogPrepReport(Player* bot, int specNo, uint32 prepMs)
+bool PlayerbotFactory::ApplyBisGear(Player* bot, uint16 ilvl, bool tank, std::string& outState)
+{
+    // Same idea as BisGearAction: base gear is already on the bot, BiS items go on top of the slots
+    // where the bot can actually equip them. Called after the spec is set (the tab is read from talents).
+    constexpr uint8 BIS_TAB_DRUID_BEAR = 10;
+    constexpr uint16 BIS_ILVL_FALLBACK_WINDOW = 30;
+
+    uint8 const cls = bot->getClass();
+    uint8 const tab = AiFactory::GetPlayerSpecTab(bot);
+    uint8 const faction = bot->GetTeamId() == TEAM_ALLIANCE ? 1 : 2;
+
+    uint16 resolvedIlvl = 0;
+    std::map<uint8, uint32> bisMap;
+    if (cls == CLASS_DRUID && tab == DRUID_TAB_FERAL && tank)
+        bisMap = sBisListMgr->GetBisForNearest(ilvl, BIS_ILVL_FALLBACK_WINDOW, cls, BIS_TAB_DRUID_BEAR, faction,
+                                               &resolvedIlvl);
+    if (bisMap.empty())
+        bisMap = sBisListMgr->GetBisForNearest(ilvl, BIS_ILVL_FALLBACK_WINDOW, cls, tab, faction, &resolvedIlvl);
+
+    if (bisMap.empty())
+    {
+        outState = "none";
+        return false;
+    }
+
+    // Equippable leftovers in bags can block unique-equipped BiS pieces.
+    auto destroyIfEquippable = [&](uint8 bag, uint8 slot)
+    {
+        Item* item = bot->GetItemByPos(bag, slot);
+        if (!item)
+            return;
+        ItemTemplate const* tmpl = item->GetTemplate();
+        if (tmpl && (tmpl->Class == ITEM_CLASS_WEAPON || tmpl->Class == ITEM_CLASS_ARMOR))
+            bot->DestroyItem(bag, slot, true);
+    };
+    for (uint8 slot = INVENTORY_SLOT_ITEM_START; slot < INVENTORY_SLOT_ITEM_END; ++slot)
+        destroyIfEquippable(INVENTORY_SLOT_BAG_0, slot);
+    for (uint8 bag = INVENTORY_SLOT_BAG_START; bag < INVENTORY_SLOT_BAG_END; ++bag)
+        if (Bag* container = bot->GetBagByPos(bag))
+            for (uint32 slot = 0; slot < container->GetBagSize(); ++slot)
+                destroyIfEquippable(bag, slot);
+
+    // Base gear may already hold the exact BiS item (e.g. trinket2 vs trinket1): drop it so the unique check passes.
+    std::set<uint32> bisEntries;
+    for (auto const& kv : bisMap)
+        bisEntries.insert(kv.second);
+    for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+        if (Item* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+            if (bisEntries.count(item->GetEntry()))
+                bot->DestroyItem(INVENTORY_SLOT_BAG_0, slot, true);
+
+    uint32 applied = 0;
+    for (auto const& kv : bisMap)
+    {
+        ItemTemplate const* proto = sObjectMgr->GetItemTemplate(kv.second);
+        if (!proto)
+            continue;
+
+        if (proto->RequiredReputationFaction && proto->RequiredReputationRank > 0)
+        {
+            if (FactionEntry const* fac = sFactionStore.LookupEntry(proto->RequiredReputationFaction))
+            {
+                ReputationRank requiredRank = static_cast<ReputationRank>(proto->RequiredReputationRank);
+                if (bot->GetReputationRank(proto->RequiredReputationFaction) < requiredRank)
+                {
+                    int32 standing = ReputationMgr::ReputationRankToStanding(
+                                         static_cast<ReputationRank>(requiredRank - 1)) + 1;
+                    bot->GetReputationMgr().SetReputation(fac, standing);
+                }
+            }
+        }
+
+        if (bot->CanUseItem(proto) != EQUIP_ERR_OK)
+            continue;
+
+        uint8 const slot = kv.first;
+        if (bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+            bot->DestroyItem(INVENTORY_SLOT_BAG_0, slot, true);
+
+        uint16 dest = 0;
+        InventoryResult eqResult = bot->CanEquipNewItem(slot, dest, kv.second, false);
+        if (eqResult != EQUIP_ERR_OK)
+        {
+            uint8 pairedSlot = 0xFF;
+            if (slot == EQUIPMENT_SLOT_FINGER1)
+                pairedSlot = EQUIPMENT_SLOT_FINGER2;
+            else if (slot == EQUIPMENT_SLOT_FINGER2)
+                pairedSlot = EQUIPMENT_SLOT_FINGER1;
+            else if (slot == EQUIPMENT_SLOT_TRINKET1)
+                pairedSlot = EQUIPMENT_SLOT_TRINKET2;
+            else if (slot == EQUIPMENT_SLOT_TRINKET2)
+                pairedSlot = EQUIPMENT_SLOT_TRINKET1;
+
+            if (pairedSlot != 0xFF)
+            {
+                if (bot->GetItemByPos(INVENTORY_SLOT_BAG_0, pairedSlot))
+                    bot->DestroyItem(INVENTORY_SLOT_BAG_0, pairedSlot, true);
+                eqResult = bot->CanEquipNewItem(slot, dest, kv.second, false);
+            }
+        }
+
+        if (eqResult == EQUIP_ERR_OK)
+        {
+            bot->EquipNewItem(dest, kv.second, true);
+            bot->AutoUnequipOffhandIfNeed();
+            ++applied;
+        }
+    }
+
+    outState = std::to_string(resolvedIlvl) + ":" + std::to_string(applied) + "/" + std::to_string(bisMap.size());
+    return true;
+}
+
+void PlayerbotFactory::LogPrepReport(Player* bot, int specNo, uint32 prepMs, std::string const& bisState)
 {
     std::string emptySlots;
     uint32 sumIlvl = 0, count = 0, minIlvl = 0, legendary = 0, enchanted = 0, emptySockets = 0;
@@ -1602,11 +1721,11 @@ void PlayerbotFactory::LogPrepReport(Player* bot, int specNo, uint32 prepMs)
     LOG_INFO("playerbots",
              "PrepReport: bot {} class={} level={} specNo={} tab={} freeTalentPoints={} glyphs={} gearScore={} "
              "avgIlvl={} minIlvl={} weakSlot={} legendary={} enchanted={} emptySockets={} ammo={} "
-             "emptySlots=[{}] alive={} prepMs={}",
+             "emptySlots=[{}] alive={} prepMs={} bis={}",
              bot->GetName(), (uint32)bot->getClass(), bot->GetLevel(), specNo,
              (uint32)AiFactory::GetPlayerSpecTab(bot), bot->GetFreeTalentPoints(), glyphs, gearScore,
              count ? sumIlvl / count : 0, minIlvl, weakSlot, legendary, enchanted, emptySockets, ammoState,
-             emptySlots, bot->IsAlive(), prepMs);
+             emptySlots, bot->IsAlive(), prepMs, bisState);
 }
 
 void PlayerbotFactory::InitPet()

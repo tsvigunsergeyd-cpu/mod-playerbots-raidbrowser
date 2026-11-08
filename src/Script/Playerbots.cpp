@@ -1217,7 +1217,8 @@ public:
 
                             // 2) Full role prep on top: strip old gear, force spec, re-gear,
                             //    glyphs, enchants, ammo, pet, consumables.
-                            factory.PrepareBotForContent(bot, specNo, /*strip*/ true, /*consumables*/ true, /*pet*/ true);
+                            factory.PrepareBotForContent(bot, specNo, /*strip*/ true, /*consumables*/ true, /*pet*/ true,
+                                                         /*bisIlvl*/ 290, /*tankRole*/ role == "tank");
 
                             LOG_INFO("playerbots", "RaidBrowserAutoFill: prep timing bot {} randomizeMs={} totalMs={}",
                                      bot->GetName(), randomizeMs, GetMSTimeDiffToNow(prepStartMs));
