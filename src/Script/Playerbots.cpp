@@ -1217,8 +1217,6 @@ public:
                             //    glyphs, enchants, ammo, pet, consumables.
                             factory.PrepareBotForContent(bot, specNo, /*strip*/ true, /*consumables*/ true, /*pet*/ true);
 
-                            LOG_INFO("playerbots", "RaidBrowserAutoFill: applied full prep (spec {} + gear + gems + skills + unbind) to bot {} (class={}, role={})",
-                                     specNo, entry.botGuids[i].ToString(), (uint32)classId, role);
                         }
                     }
 
