@@ -1493,6 +1493,36 @@ void PlayerbotFactory::InitPetTalents()
     bot->SendTalentsInfoData(true);
 }
 
+void PlayerbotFactory::PrepareBotForContent(Player* bot, int specNo, bool strip, bool consumables, bool pet)
+{
+    // strip old gear first so InitEquipment re-gears from a clean sheet
+    if (strip)
+        DestroyEquippedGear(bot);
+
+    // force role spec (reset=true), then re-gear/glyph/enchant for it
+    if (specNo >= 0)
+        InitTalentsBySpecNo(bot, specNo, true);
+
+    InitEquipment(false, true);
+    InitGlyphs(false);
+    ApplyEnchantAndGemsNew();
+
+    // ammo LAST: InitEquipment may have swapped the ranged weapon
+    InitAmmo();
+
+    if (pet)
+    {
+        InitPet();
+        InitPetTalents();
+    }
+
+    if (consumables)
+        InitConsumables();
+
+    if (PlayerbotAI* ai = GET_PLAYERBOT_AI(bot))
+        ai->ResetStrategies();
+}
+
 void PlayerbotFactory::InitPet()
 {
     Pet* pet = bot->GetPet();
