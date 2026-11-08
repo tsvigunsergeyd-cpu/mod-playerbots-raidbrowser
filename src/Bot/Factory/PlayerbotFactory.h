@@ -80,6 +80,7 @@ public:
     void InitEquipment(bool incremental, bool second_chance = false);
     void InitPet();
     void PrepareBotForContent(Player* bot, int specNo, bool strip, bool consumables, bool pet);
+    static void LogPrepReport(Player* bot, int specNo, uint32 prepMs);
     void InitAmmo();
     static uint32 CalcMixedGearScore(uint32 gs, uint32 quality);
     static void DestroyEquippedGear(Player* bot);

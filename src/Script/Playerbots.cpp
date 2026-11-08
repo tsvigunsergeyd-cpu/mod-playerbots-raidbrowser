@@ -1208,14 +1208,19 @@ public:
                         int specNo = SpecNoForClassRole(classId, role);
                         if (specNo >= 0)
                         {
-                            PlayerbotFactory factory(bot, bot->GetLevel(), /*quality*/ 5, /*gearScoreLimit*/ 0);
+                            uint32 const prepStartMs = getMSTime();
+                            PlayerbotFactory factory(bot, bot->GetLevel());
 
                             // 1) Full cycle: skills, spells, gear, gems, unbind, attunements
                             factory.Randomize(false);
+                            uint32 const randomizeMs = GetMSTimeDiffToNow(prepStartMs);
 
                             // 2) Full role prep on top: strip old gear, force spec, re-gear,
                             //    glyphs, enchants, ammo, pet, consumables.
                             factory.PrepareBotForContent(bot, specNo, /*strip*/ true, /*consumables*/ true, /*pet*/ true);
+
+                            LOG_INFO("playerbots", "RaidBrowserAutoFill: prep timing bot {} randomizeMs={} totalMs={}",
+                                     bot->GetName(), randomizeMs, GetMSTimeDiffToNow(prepStartMs));
 
                         }
                     }

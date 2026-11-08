@@ -1495,45 +1495,118 @@ void PlayerbotFactory::InitPetTalents()
 
 void PlayerbotFactory::PrepareBotForContent(Player* bot, int specNo, bool strip, bool consumables, bool pet)
 {
-    LOG_INFO("playerbots", "PrepareBotForContent: bot={} specNo={} strip={} consumables={} pet={}",
-             bot->GetName(), specNo, strip, consumables, pet);
+    uint32 const startMs = getMSTime();
 
+    // Order matters (lessons from the dungeon module): spec -> gear -> glyphs (the tab is read from the
+    // CURRENT talents) -> enchants/gems (re-gear drops them) -> ammo LAST (re-gear may swap the ranged weapon).
     if (strip)
         DestroyEquippedGear(bot);
 
     if (specNo >= 0)
         InitTalentsBySpecNo(bot, specNo, true);
-    LOG_INFO("playerbots", "PrepareBotForContent: {} talents done (specNo={})", bot->GetName(), specNo);
 
     InitEquipment(false, true);
-    LOG_INFO("playerbots", "PrepareBotForContent: {} gear done", bot->GetName());
-
     InitGlyphs(false);
-    LOG_INFO("playerbots", "PrepareBotForContent: {} glyphs done", bot->GetName());
 
-    ApplyEnchantAndGemsNew();
-    LOG_INFO("playerbots", "PrepareBotForContent: {} enchants/gems done", bot->GetName());
+    if (bot->GetLevel() >= sPlayerbotAIConfig.MinEnchantingBotLevel)
+        ApplyEnchantAndGemsNew();
 
     InitAmmo();
-    LOG_INFO("playerbots", "PrepareBotForContent: {} ammo done", bot->GetName());
 
     if (pet)
     {
         InitPet();
         InitPetTalents();
-        LOG_INFO("playerbots", "PrepareBotForContent: {} pet done", bot->GetName());
     }
 
     if (consumables)
-    {
         InitConsumables();
-        LOG_INFO("playerbots", "PrepareBotForContent: {} consumables done", bot->GetName());
-    }
 
     if (PlayerbotAI* ai = GET_PLAYERBOT_AI(bot))
         ai->ResetStrategies();
 
-    LOG_INFO("playerbots", "PrepareBotForContent: {} ALL DONE", bot->GetName());
+    LogPrepReport(bot, specNo, GetMSTimeDiffToNow(startMs));
+}
+
+void PlayerbotFactory::LogPrepReport(Player* bot, int specNo, uint32 prepMs)
+{
+    std::string emptySlots;
+    uint32 sumIlvl = 0, count = 0, minIlvl = 0, legendary = 0, enchanted = 0, emptySockets = 0;
+    int weakSlot = -1;
+    for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+    {
+        if (slot == EQUIPMENT_SLOT_BODY || slot == EQUIPMENT_SLOT_TABARD)
+            continue;
+
+        Item* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
+        if (!item)
+        {
+            emptySlots += std::to_string(slot) + " ";
+            continue;
+        }
+
+        ItemTemplate const* proto = item->GetTemplate();
+        if (!proto)
+            continue;
+
+        sumIlvl += proto->ItemLevel;
+        ++count;
+        if (!minIlvl || proto->ItemLevel < minIlvl)
+        {
+            minIlvl = proto->ItemLevel;
+            weakSlot = slot;
+        }
+        if (proto->Quality >= ITEM_QUALITY_LEGENDARY)
+            ++legendary;
+        if (item->GetEnchantmentId(PERM_ENCHANTMENT_SLOT))
+            ++enchanted;
+        for (uint32 i = 0; i < MAX_ITEM_PROTO_SOCKETS; ++i)
+            if (proto->Socket[i].Color && !item->GetEnchantmentId(EnchantmentSlot(SOCK_ENCHANTMENT_SLOT + i)))
+                ++emptySockets;
+    }
+
+    uint32 glyphs = 0;
+    for (uint32 i = 0; i < MAX_GLYPH_SLOT_INDEX; ++i)
+        if (bot->GetGlyph(i))
+            ++glyphs;
+
+    uint32 gearScore = 0;
+    if (PlayerbotAI* ai = GET_PLAYERBOT_AI(bot))
+        gearScore = ai->GetEquipGearScore(bot);
+
+    // ranged weapon vs loaded ammo (bow/crossbow take arrows, gun takes bullets)
+    char const* ammoState = "n/a";
+    if (Item* ranged = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_RANGED))
+    {
+        ItemTemplate const* rp = ranged->GetTemplate();
+        if (rp && rp->Class == ITEM_CLASS_WEAPON)
+        {
+            bool const needsArrow =
+                rp->SubClass == ITEM_SUBCLASS_WEAPON_BOW || rp->SubClass == ITEM_SUBCLASS_WEAPON_CROSSBOW;
+            bool const needsBullet = rp->SubClass == ITEM_SUBCLASS_WEAPON_GUN;
+            if (needsArrow || needsBullet)
+            {
+                uint32 const ammoId = bot->GetUInt32Value(PLAYER_AMMO_ID);
+                ItemTemplate const* ap = ammoId ? sObjectMgr->GetItemTemplate(ammoId) : nullptr;
+                if (!ap)
+                    ammoState = "none";
+                else if ((needsArrow && ap->SubClass == ITEM_SUBCLASS_ARROW) ||
+                         (needsBullet && ap->SubClass == ITEM_SUBCLASS_BULLET))
+                    ammoState = "ok";
+                else
+                    ammoState = "MISMATCH";
+            }
+        }
+    }
+
+    LOG_INFO("playerbots",
+             "PrepReport: bot {} class={} level={} specNo={} tab={} freeTalentPoints={} glyphs={} gearScore={} "
+             "avgIlvl={} minIlvl={} weakSlot={} legendary={} enchanted={} emptySockets={} ammo={} "
+             "emptySlots=[{}] alive={} prepMs={}",
+             bot->GetName(), (uint32)bot->getClass(), bot->GetLevel(), specNo,
+             (uint32)AiFactory::GetPlayerSpecTab(bot), bot->GetFreeTalentPoints(), glyphs, gearScore,
+             count ? sumIlvl / count : 0, minIlvl, weakSlot, legendary, enchanted, emptySockets, ammoState,
+             emptySlots, bot->IsAlive(), prepMs);
 }
 
 void PlayerbotFactory::InitPet()
