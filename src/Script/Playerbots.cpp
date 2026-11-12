@@ -55,7 +55,7 @@ static int SpecNoForClassRole(uint8 classId, std::string const& roleIn)
     static std::map<std::pair<uint8, std::string>, int> const table = {
         {{1,  "tank"}, 2}, {{1,  "dps"}, 0},
         {{2,  "tank"}, 1}, {{2,  "heal"}, 0}, {{2,  "dps"}, 2},
-        {{3,  "dps"}, 0},
+        {{3,  "dps"}, 1},
         {{4,  "dps"}, 1},
         {{5,  "heal"}, 0}, {{5,  "dps"}, 2},
         {{6,  "tank"}, 0}, {{6,  "dps"}, 1},
